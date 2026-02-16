@@ -1,0 +1,21 @@
+{
+  "name": "subzero",
+  "module": "src/index.ts",
+  "type": "module",
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "scripts": {
+    "clean": "rm -rf dist && echo 'Done.'",
+    "dev": "bun src/index.ts",
+    "watch": "bun --watch run dev",
+    "test": "bun test",
+    "cov": "bun test --coverage"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "canonicalize": "^2.1.0"
+  }
+}
