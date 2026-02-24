@@ -8,6 +8,7 @@
   },
   "scripts": {
     "clean": "rm -rf dist && echo 'Done.'",
+    "start": "bun run build && bun dist/index.js",
     "dev:server": "bun src/index.ts",
     "build": "bun build src/index.ts --outdir dist --target bun",
     "watch:server": "bun --watch run dev:server",

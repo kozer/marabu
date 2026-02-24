@@ -1,7 +1,7 @@
 export const SEPARATOR = "\n";
 export const SERVER_PORT = 18018;
 const isProd = process.env.NODE_ENV === "production";
-export const SERVER_HOST = isProd ? "95.179.181.27" : "127.0.0.1";
+export const SERVER_HOST = isProd ? "95.179.181.27" : "0.0.0.0";
 export const MY_NODE_ADDRESS = isProd
   ? "95.179.181.27:18018"
   : "127.0.0.1:18018";
