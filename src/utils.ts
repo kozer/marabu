@@ -33,3 +33,6 @@ export function parseHost(str: string) {
     port: portNum,
   };
 }
+
+export const delay = (ms: number) =>
+  new Promise((resolve) => setTimeout(resolve, ms));
