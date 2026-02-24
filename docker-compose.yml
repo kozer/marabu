@@ -1,0 +1,10 @@
+services:
+  marabu-node:
+    build: .
+    container_name: subzero-node
+    restart: always
+    network_mode: "host"
+    volumes:
+      - ./peers.json:/usr/src/app/peers.json:Z
+    environment:
+      - NODE_ENV=production
