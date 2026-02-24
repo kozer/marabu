@@ -9,6 +9,8 @@ export enum MessageType {
   PEERS = "peers",
   ERROR = "error",
   GET_CHAIN_TIP = "getchaintip",
+  GET_MEMPOOL = "getmempool",
+  MEMPOOL = "mempool",
 }
 
 export const BOOTSTRAP_PEERS = [
@@ -18,3 +20,5 @@ export const BOOTSTRAP_PEERS = [
 ];
 
 export const PEERS_FILE = "./peers.json";
+export const MAX_PEERS = 20;
+export const OUTBOUND_PEER_LIMIT = 10;
