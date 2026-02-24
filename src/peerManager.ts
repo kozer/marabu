@@ -1,12 +1,12 @@
 import {
   BOOTSTRAP_PEERS,
   MAX_PEERS,
-  PEERS_FILE,
   SERVER_HOST,
   SERVER_PORT,
 } from "./constants";
 import logger from "./logger";
 import { parseHost } from "./utils";
+import type { PeerStore } from "./peerStore";
 
 export class PeerManager {
   private readonly MAX_PEERS = MAX_PEERS;
@@ -14,7 +14,7 @@ export class PeerManager {
   activeConnections = new Set<string>();
   private failedAttempts = new Map<string, number>();
   private lastAttempt = new Map<string, number>();
-  private readonly file = Bun.file(PEERS_FILE);
+  private readonly store: PeerStore;
   private readonly myNode = `${SERVER_HOST}:${SERVER_PORT}`;
 
   isValidPeer(peer: string): boolean {
@@ -45,7 +45,8 @@ export class PeerManager {
     return true;
   }
 
-  constructor() {
+  constructor(store: PeerStore) {
+    this.store = store;
     this.peerAddressBook = new Set(BOOTSTRAP_PEERS);
   }
 
@@ -87,33 +88,27 @@ export class PeerManager {
 
   async load(): Promise<string[]> {
     try {
-      if (await this.file.exists()) {
-        const data = await this.file.json();
-        const combinedPeers = [...BOOTSTRAP_PEERS, ...data.peers, this.myNode];
-        logger.info(`My node address: ${this.myNode}`);
-        this.peerAddressBook = new Set(combinedPeers);
-        logger.info(`Loaded ${this.peerAddressBook.size} peers from disk.`);
+      const storedPeers = await this.store.load();
+      const combinedPeers = [...BOOTSTRAP_PEERS, ...storedPeers, this.myNode];
+      logger.info(`My node address: ${this.myNode}`);
+      this.peerAddressBook = new Set(combinedPeers);
+      logger.info(`Loaded ${this.peerAddressBook.size} peers from storage.`);
 
-        return this.getAll();
-      }
+      return this.getAll();
     } catch (err) {
-      logger.error(err, "Failed to load peers from disk");
+      logger.error(err, "Failed to load peers from storage");
+      this.peerAddressBook = new Set([...BOOTSTRAP_PEERS, this.myNode]);
+      return this.getAll();
     }
-
-    this.peerAddressBook = new Set([...BOOTSTRAP_PEERS, this.myNode]);
-    return this.getAll();
   }
 
   async save(): Promise<void> {
     try {
       const peersArray = this.getAll();
-      await Bun.write(
-        this.file,
-        JSON.stringify({ peers: peersArray }, null, 2),
-      );
-      logger.info(`Saved ${peersArray.length} peers to disk.`);
+      await this.store.save(peersArray);
+      logger.info(`Saved ${peersArray.length} peers to storage.`);
     } catch (err) {
-      logger.error(err, "Failed to save peers to disk");
+      logger.error(err, "Failed to save peers to storage");
     }
   }
 

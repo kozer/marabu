@@ -1,14 +1,15 @@
 import { createServer, Socket } from "net";
 import logger from "./logger";
-import { SERVER_PORT } from "./constants";
+import { SERVER_PORT, PEERS_FILE } from "./constants";
 import {
   handleInboundConnection,
   handleOutboundConnection,
 } from "./connection";
 import { PeerManager } from "./peerManager";
+import { FilePeerStore } from "./peerStore";
 
 async function startNode() {
-  const peerManager = new PeerManager();
+  const peerManager = new PeerManager(new FilePeerStore(PEERS_FILE));
   await peerManager.load();
   const server = createServer();
   server.listen(SERVER_PORT, function () {
