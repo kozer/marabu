@@ -1,4 +1,10 @@
-import { BOOTSTRAP_PEERS, MAX_PEERS, PEERS_FILE } from "./constants";
+import {
+  BOOTSTRAP_PEERS,
+  MAX_PEERS,
+  PEERS_FILE,
+  SERVER_HOST,
+  SERVER_PORT,
+} from "./constants";
 import logger from "./logger";
 import { parseHost } from "./utils";
 
@@ -9,8 +15,12 @@ export class PeerManager {
   private failedAttempts = new Map<string, number>();
   private lastAttempt = new Map<string, number>();
   private readonly file = Bun.file(PEERS_FILE);
+  private readonly myNode = `${SERVER_HOST}:${SERVER_PORT}`;
 
   isValidPeer(peer: string): boolean {
+    if (peer === this.myNode) {
+      return false;
+    }
     const { host, port } = parseHost(peer) || {};
     if (!host || !port) return false;
 
@@ -79,7 +89,8 @@ export class PeerManager {
     try {
       if (await this.file.exists()) {
         const data = await this.file.json();
-        const combinedPeers = [...BOOTSTRAP_PEERS, ...data.peers];
+        const combinedPeers = [...BOOTSTRAP_PEERS, ...data.peers, this.myNode];
+        logger.info(`My node address: ${this.myNode}`);
         this.peerAddressBook = new Set(combinedPeers);
         logger.info(`Loaded ${this.peerAddressBook.size} peers from disk.`);
 
@@ -89,7 +100,7 @@ export class PeerManager {
       logger.error(err, "Failed to load peers from disk");
     }
 
-    this.peerAddressBook = new Set(BOOTSTRAP_PEERS);
+    this.peerAddressBook = new Set([...BOOTSTRAP_PEERS, this.myNode]);
     return this.getAll();
   }
 
