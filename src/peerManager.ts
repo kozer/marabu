@@ -4,7 +4,6 @@ import {
   SERVER_HOST,
   SERVER_PORT,
 } from "./constants";
-import logger from "./logger";
 import { parseHost } from "./utils";
 import type { PeerStore } from "./peerStore";
 
@@ -16,6 +15,7 @@ export class PeerManager {
   private lastAttempt = new Map<string, number>();
   private readonly store: PeerStore;
   private readonly myNode = `${SERVER_HOST}:${SERVER_PORT}`;
+  private readonly logger: any;
 
   isValidPeer(peer: string): boolean {
     if (peer === this.myNode) {
@@ -45,9 +45,10 @@ export class PeerManager {
     return true;
   }
 
-  constructor(store: PeerStore) {
+  constructor(store: PeerStore, logger: any) {
     this.store = store;
     this.peerAddressBook = new Set(BOOTSTRAP_PEERS);
+    this.logger = logger;
   }
 
   has(peer: string): boolean {
@@ -65,7 +66,7 @@ export class PeerManager {
   async add(peer: string): Promise<void> {
     if (!this.peerAddressBook.has(peer)) {
       this.peerAddressBook.add(peer);
-      logger.info(`Added new peer: ${peer}`);
+      this.logger.info(`Added new peer: ${peer}`);
       await this.save();
     }
   }
@@ -79,7 +80,7 @@ export class PeerManager {
       }
     }
     if (newPeers.length > 0) {
-      logger.info(
+      this.logger.info(
         `Added ${newPeers.length} new peer(s): ${newPeers.join(", ")}`,
       );
       await this.save();
@@ -90,13 +91,15 @@ export class PeerManager {
     try {
       const storedPeers = await this.store.load();
       const combinedPeers = [...BOOTSTRAP_PEERS, ...storedPeers, this.myNode];
-      logger.info(`My node address: ${this.myNode}`);
+      this.logger.info(`My node address: ${this.myNode}`);
       this.peerAddressBook = new Set(combinedPeers);
-      logger.info(`Loaded ${this.peerAddressBook.size} peers from storage.`);
+      this.logger.info(
+        `Loaded ${this.peerAddressBook.size} peers from storage.`,
+      );
 
       return this.getAll();
     } catch (err) {
-      logger.error(err, "Failed to load peers from storage");
+      this.logger.error(err, "Failed to load peers from storage");
       this.peerAddressBook = new Set([...BOOTSTRAP_PEERS, this.myNode]);
       return this.getAll();
     }
@@ -106,22 +109,22 @@ export class PeerManager {
     try {
       const peersArray = this.getAll();
       await this.store.save(peersArray);
-      logger.info(`Saved ${peersArray.length} peers to storage.`);
+      this.logger.info(`Saved ${peersArray.length} peers to storage.`);
     } catch (err) {
-      logger.error(err, "Failed to save peers to storage");
+      this.logger.error(err, "Failed to save peers to storage");
     }
   }
 
   onConnectionOpen(id: string): void {
     this.activeConnections.add(id);
-    logger.info(
+    this.logger.info(
       `Peer connected: ${id}. Active peers: ${this.activeConnections.size}`,
     );
   }
 
   onConnectionClose(id: string): void {
     this.activeConnections.delete(id);
-    logger.info(
+    this.logger.info(
       `Peer disconnected: ${id}. Active peers: ${this.activeConnections.size}`,
     );
   }
@@ -137,7 +140,7 @@ export class PeerManager {
     this.failedAttempts.set(peer, attempts);
     this.lastAttempt.set(peer, Date.now());
 
-    logger.debug(`Peer ${peer} failed. Total attempts: ${attempts}`);
+    this.logger.debug(`Peer ${peer} failed. Total attempts: ${attempts}`);
   }
 
   // Call this when a connection succeeds

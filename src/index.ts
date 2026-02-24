@@ -9,7 +9,7 @@ import { PeerManager } from "./peerManager";
 import { FilePeerStore } from "./peerStore";
 
 async function startNode() {
-  const peerManager = new PeerManager(new FilePeerStore(PEERS_FILE));
+  const peerManager = new PeerManager(new FilePeerStore(PEERS_FILE), logger);
   await peerManager.load();
   const server = createServer();
   server.listen(SERVER_PORT, function () {

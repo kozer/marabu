@@ -9,11 +9,18 @@ import {
 import { createServer, Socket } from "net";
 import { handleInboundConnection } from "./connection";
 import { PeerManager } from "./peerManager";
-import logger from "./logger";
-import { delay, sendMessage } from "./utils";
+import { sendMessage, delay } from "./utils";
 import { MessageType, SEPARATOR } from "./constants";
 import { MemoryPeerStore } from "./peerStore";
 import { ErrorCode } from "./error";
+
+// Simple mock logger for tests to avoid pino-pretty keeping process alive
+const logger = {
+  info: (..._args: any[]) => {},
+  error: (..._args: any[]) => {},
+  debug: (..._args: any[]) => {},
+  warn: (..._args: any[]) => {},
+};
 
 const TEST_PORT = 18018;
 
@@ -99,7 +106,7 @@ describe("Test node functionality", () => {
 
   beforeAll(async () => {
     store = new MemoryPeerStore();
-    peerManager = new PeerManager(store);
+    peerManager = new PeerManager(store, logger);
     await peerManager.load();
 
     server = createServer();
@@ -108,17 +115,19 @@ describe("Test node functionality", () => {
       handleInboundConnection(socket, peerManager, logger);
     });
 
-    await delay(100);
+    await delay(500);
   });
 
   afterAll(async () => {
-    server.close();
-    await delay(100);
+    await new Promise<void>((resolve) => {
+      server.close(() => resolve());
+    });
+    await delay(500);
   });
 
   beforeEach(async () => {
     store.reset();
-    peerManager = new PeerManager(store);
+    peerManager = new PeerManager(store, logger);
     await peerManager.load();
   });
 
@@ -158,7 +167,7 @@ describe("Test node functionality", () => {
     expect(messages1[0]).toHaveProperty("type", MessageType.HELLO);
     await closeSocket(socket1);
 
-    await delay(100);
+    await delay(500);
 
     const socket2 = await connectToNode();
     const messages2 = await receiveMessages(socket2, 500);
@@ -205,7 +214,7 @@ describe("Test node functionality", () => {
     await receiveMessages(socket, 200);
 
     socket.write('{"type":');
-    await delay(100);
+    await delay(500);
 
     socket.write('"getpeers"}\n');
 
@@ -297,7 +306,7 @@ describe("Test node functionality", () => {
     });
 
     await closeSocket(socket1);
-    await delay(100);
+    await delay(500);
 
     const socket2 = await connectToNode();
     await receiveMessages(socket2, 200);
@@ -379,7 +388,7 @@ describe("Test node functionality", () => {
 
       socket.write("\n");
 
-      await delay(100);
+      await delay(500);
 
       sendMessage(socket, {
         type: MessageType.HELLO,
@@ -405,7 +414,7 @@ describe("Test node functionality", () => {
       socket.write("   \n");
 
       // Wait a bit
-      await delay(100);
+      await delay(500);
 
       // Send valid hello
       sendMessage(socket, {
