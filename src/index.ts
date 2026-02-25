@@ -21,7 +21,7 @@ async function startNode() {
     handleInboundConnection(socket, peerManager, logger);
   });
   handleOutboundConnection(peerManager, logger);
-  setInterval(() => handleOutboundConnection(peerManager, logger), 10000);
+  setInterval(() => handleOutboundConnection(peerManager, logger), 60000);
 }
 
 startNode();
