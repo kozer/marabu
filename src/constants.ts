@@ -24,5 +24,5 @@ export const BOOTSTRAP_PEERS = [
 ];
 
 export const PEERS_FILE = "./peers.json";
-export const MAX_PEERS = 200;
-export const OUTBOUND_PEER_LIMIT = 100;
+export const MAX_PEERS = 1000;
+export const OUTBOUND_PEER_LIMIT = 200;
