@@ -521,7 +521,7 @@ describe("Test node functionality", () => {
         const errorMessage = messages.find(
           (m) =>
             m.type === MessageType.ERROR &&
-            m.name === ErrorCode.INVALID_HANDSHAKE,
+            m.name === ErrorCode.INVALID_FORMAT,
         );
         expect(errorMessage).toBeDefined();
 

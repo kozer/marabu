@@ -29,7 +29,7 @@ export function checkHandshake(
   if (!semver.satisfies(message.version, "0.10.x")) {
     socket.write(
       new ProtocolError(
-        ErrorCode.INVALID_HANDSHAKE,
+        ErrorCode.INVALID_FORMAT,
         `Incompatible client version ${message.version}`,
       ).toMessage(),
     );
