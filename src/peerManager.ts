@@ -1,6 +1,7 @@
 import {
   BOOTSTRAP_PEERS,
   MAX_PEERS,
+  OUTBOUND_PEER_LIMIT,
   SERVER_HOST,
   SERVER_PORT,
 } from "./constants";
@@ -10,7 +11,8 @@ import type { PeerStore } from "./peerStore";
 export class PeerManager {
   private readonly MAX_PEERS = MAX_PEERS;
   private peerAddressBook: Set<string>;
-  activeConnections = new Set<string>();
+  inboundConnections = new Set<string>();
+  outboundConnections = new Set<string>();
   private failedAttempts = new Map<string, number>();
   private lastAttempt = new Map<string, number>();
   private readonly store: PeerStore;
@@ -116,46 +118,57 @@ export class PeerManager {
   }
 
   onConnectionOpen(id: string): void {
-    this.activeConnections.add(id);
+    this.inboundConnections.add(id);
     this.logger.info(
-      `Peer connected: ${id}. Active peers: ${this.activeConnections.size}`,
+      `Peer connected: ${id}. Active peers: ${this.inboundConnections.size}`,
     );
   }
 
   onConnectionClose(id: string): void {
-    this.activeConnections.delete(id);
+    this.inboundConnections.delete(id);
     this.logger.info(
-      `Peer disconnected: ${id}. Active peers: ${this.activeConnections.size}`,
+      `Peer disconnected: ${id}. Active peers: ${this.inboundConnections.size}`,
     );
   }
 
-  canAcceptConnection(): boolean {
-    return this.activeConnections.size < this.MAX_PEERS;
+  canAcceptInbound(): boolean {
+    return this.inboundConnections.size < this.MAX_PEERS - OUTBOUND_PEER_LIMIT;
   }
-  get slotsAvailable(): number {
-    return this.MAX_PEERS - this.activeConnections.size;
+
+  canAcceptOutbound(): boolean {
+    return this.outboundConnections.size < OUTBOUND_PEER_LIMIT;
   }
+
+  get totalConnections(): number {
+    return this.inboundConnections.size + this.outboundConnections.size;
+  }
+
   onDialFail(peer: string) {
     const attempts = (this.failedAttempts.get(peer) || 0) + 1;
     this.failedAttempts.set(peer, attempts);
     this.lastAttempt.set(peer, Date.now());
+    this.outboundConnections.delete(peer);
 
     this.logger.debug(`Peer ${peer} failed. Total attempts: ${attempts}`);
   }
 
-  // Call this when a connection succeeds
   onDialSuccess(peer: string) {
     this.failedAttempts.delete(peer);
     this.lastAttempt.set(peer, Date.now());
+    this.outboundConnections.add(peer);
   }
 
   getOutboundCandidates(): string[] {
     const now = Date.now();
 
     return this.getAll().filter((peer) => {
-      if (this.activeConnections.has(peer)) return false;
-
-      if (!this.isValidPeer(peer)) return false;
+      if (
+        this.inboundConnections.has(peer) ||
+        this.outboundConnections.has(peer) ||
+        !this.isValidPeer(peer)
+      ) {
+        return false;
+      }
 
       const failures = this.failedAttempts.get(peer) || 0;
       const lastTime = this.lastAttempt.get(peer) || 0;

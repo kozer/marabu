@@ -17,12 +17,13 @@ export function validateHost(str: string) {
 }
 
 export function parseHost(str: string) {
-  const lastColon = str.lastIndexOf(":");
+  const trimmed = str.trim();
+  const lastColon = trimmed.lastIndexOf(":");
   if (lastColon === -1) {
     return false;
   }
-  const host = str.slice(0, lastColon);
-  const port = str.slice(lastColon + 1);
+  const host = trimmed.slice(0, lastColon);
+  const port = trimmed.slice(lastColon + 1);
 
   if (!host || !port) {
     return false;

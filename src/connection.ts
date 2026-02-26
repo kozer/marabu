@@ -11,23 +11,12 @@ import { parseMessage } from "./messageParser";
 import { messageHandlers } from "./messageHandlers";
 import type { PeerManager } from "./peerManager";
 
-export function handleInboundConnection(
+export function handleConnection(
+  id: string,
   socket: Socket,
   peerManager: PeerManager,
   logger: any,
 ) {
-  const id = `${socket.remoteAddress}:${socket.remotePort}`;
-  if (!peerManager.canAcceptConnection()) {
-    console.log(`Refusing connection from ${id}: Max peers reached.`);
-    socket.destroy(); // Hang up immediately
-    return;
-  }
-  peerManager.onConnectionOpen(id);
-  if (peerManager.has(id)) {
-    logger.info(`Peer ${id} has reconnected.`);
-  }
-  logger.info(`A new connection has been established from ${id}.`);
-
   sendMessage(socket, {
     type: MessageType.HELLO,
     version: "0.10.0",
@@ -75,6 +64,25 @@ export function handleInboundConnection(
       logger.info({ type: message.type }, `[${id}]: Received message`);
     }
   });
+}
+
+export function handleInboundConnection(
+  socket: Socket,
+  peerManager: PeerManager,
+  logger: any,
+) {
+  const id = `${socket.remoteAddress}:${socket.remotePort}`;
+  if (!peerManager.canAcceptInbound()) {
+    console.log(`Refusing connection from ${id}: Max peers reached.`);
+    socket.destroy(); // Hang up immediately
+    return;
+  }
+  peerManager.onConnectionOpen(id);
+  logger.info(
+    `Inbound: ${peerManager.inboundConnections.size}. Total: ${peerManager.totalConnections}/${MAX_PEERS}`,
+  );
+  logger.info(`A new connection has been established from ${id}.`);
+  handleConnection(id, socket, peerManager, logger);
 
   socket.on("end", function () {
     logger.info("Closing connection with the client");
@@ -91,16 +99,12 @@ export function handleOutboundConnection(
   peerManager: PeerManager,
   logger: any,
 ) {
-  if (!peerManager.canAcceptConnection()) {
-    logger.debug("Discovery loop: Max peers reached. Skipping.");
-    return;
-  }
-  const activePeersCount = peerManager.activeConnections.size;
-  if (activePeersCount >= OUTBOUND_PEER_LIMIT) {
+  if (!peerManager.canAcceptOutbound()) {
     logger.debug("Discovery loop: Outbound peer limit reached. Skipping.");
     return;
   }
-  const peersToConnect = OUTBOUND_PEER_LIMIT - activePeersCount;
+  const peersToConnect =
+    OUTBOUND_PEER_LIMIT - peerManager.outboundConnections.size;
   const candidates = peerManager.getOutboundCandidates();
 
   if (candidates.length === 0) {
@@ -111,13 +115,10 @@ export function handleOutboundConnection(
     .sort(() => Math.random() - 0.5)
     .slice(0, peersToConnect);
   logger.info(
-    `Discovery loop: Attempting to connect to ${peers.length} peer(s). Active peers: ${activePeersCount}/${MAX_PEERS}`,
+    `Discovery loop: Attempting to connect to ${peers.length} peer(s). Outbound: ${peerManager.outboundConnections.size}/${OUTBOUND_PEER_LIMIT}, Total: ${peerManager.totalConnections}/${MAX_PEERS}`,
   );
 
   for (const peer of peers) {
-    if (peerManager.activeConnections.has(peer)) {
-      continue;
-    }
     const { host, port } = parseHost(peer) || {};
     if (!host || !port) {
       logger.warn(`Invalid bootstrap peer: ${peer}`);
@@ -128,14 +129,15 @@ export function handleOutboundConnection(
       host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
 
     const client = new Socket();
+    const cleanPeer = `${cleanHost}:${port}`;
 
     client.setTimeout(2000);
 
     client.connect(port, cleanHost, () => {
-      logger.info(`Successfully connected to ${peer}!`);
+      logger.info(`Successfully connected to ${cleanPeer}!`);
       peerManager.onDialSuccess(peer);
       client.setTimeout(0);
-      handleInboundConnection(client, peerManager, logger);
+      handleConnection(cleanPeer, client, peerManager, logger);
     });
 
     client.on("error", (err) => {
