@@ -39,7 +39,6 @@ export const peersHandler = async (message: PeersMessage, ctx: PeerContext) => {
   for (const peer of message.peers) {
     const normalizedPeer = peer.trim();
     if (!ctx.peerManager.getPeers().has(normalizedPeer)) {
-      ctx.logger.info(`Discovered new peer ${normalizedPeer} from ${ctx.id}`);
       newPeers.push(normalizedPeer);
     }
   }

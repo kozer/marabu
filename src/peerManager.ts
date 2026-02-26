@@ -5,8 +5,10 @@ import {
   SERVER_HOST,
   SERVER_PORT,
 } from "./constants";
-import { parseHost } from "./utils";
+import { normalizePeer, parseHost } from "./utils";
 import type { PeerStore } from "./peerStore";
+import ip from "ip";
+import { isIP } from "node:net";
 
 export class PeerManager {
   private readonly MAX_PEERS = MAX_PEERS;
@@ -20,35 +22,44 @@ export class PeerManager {
   private readonly logger: any;
 
   isValidPeer(peer: string): boolean {
+    if (!peer || !peer.trim()) {
+      return false;
+    }
     if (peer === this.myNode) {
       return false;
     }
-    const { host, port } = parseHost(peer) || {};
-    if (!host || !port) return false;
 
-    if (isNaN(port) || port <= 0 || port > 65535) return false;
-    const lowercaseHost = host.toLowerCase();
-    const normalizedHost =
-      lowercaseHost.startsWith("[") && lowercaseHost.endsWith("]")
-        ? lowercaseHost.slice(1, -1)
-        : lowercaseHost;
-    if (
-      normalizedHost === "localhost" ||
-      normalizedHost === "loopback" ||
-      normalizedHost === "::1" // IPv6 Localhost
-    ) {
+    const parsed = parseHost(peer);
+    if (!parsed) {
       return false;
     }
 
-    const ipv4Host = normalizedHost.startsWith("::ffff:")
-      ? normalizedHost.slice("::ffff:".length)
-      : normalizedHost;
-    if (
-      ipv4Host.startsWith("127.") ||
-      ipv4Host.startsWith("10.") ||
-      ipv4Host.startsWith("192.168.")
-    ) {
+    let { host, port } = parsed;
+
+    if (isNaN(port) || port <= 0 || port > 65535) return false;
+
+    const normalizedHost =
+      host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
+
+    const lowercaseHost = normalizedHost.toLowerCase();
+
+    if (["localhost", "loopback"].includes(lowercaseHost)) {
       return false;
+    }
+
+    const ipType = isIP(normalizedHost); // Returns 0 (DNS), 4 (IPv4), or 6 (IPv6)
+
+    if (ipType !== 0) {
+      try {
+        if (ip.isLoopback(normalizedHost) || ip.isPrivate(normalizedHost)) {
+          return false;
+        }
+      } catch (e) {
+        this.logger.warn(
+          `Failed to validate IP address ${normalizedHost}: ${e}`,
+        );
+        return false;
+      }
     }
 
     return true;
@@ -73,9 +84,13 @@ export class PeerManager {
   }
 
   async add(peer: string): Promise<void> {
-    if (!this.peerAddressBook.has(peer)) {
-      this.peerAddressBook.add(peer);
-      this.logger.info(`Added new peer: ${peer}`);
+    const normalizedPeer = normalizePeer(peer);
+    if (
+      !this.peerAddressBook.has(normalizedPeer) &&
+      this.isValidPeer(normalizedPeer)
+    ) {
+      this.peerAddressBook.add(normalizedPeer);
+      this.logger.info(`Added new peer: ${normalizedPeer}`);
       await this.save();
     }
   }
@@ -83,9 +98,13 @@ export class PeerManager {
   async addAll(peers: string[]): Promise<void> {
     const newPeers = [];
     for (const peer of peers) {
-      if (!this.peerAddressBook.has(peer)) {
-        newPeers.push(peer);
-        this.peerAddressBook.add(peer);
+      const normalizedPeer = normalizePeer(peer);
+      if (
+        !this.peerAddressBook.has(normalizedPeer) &&
+        this.isValidPeer(normalizedPeer)
+      ) {
+        newPeers.push(normalizedPeer);
+        this.peerAddressBook.add(normalizedPeer);
       }
     }
     if (newPeers.length > 0) {

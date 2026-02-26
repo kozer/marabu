@@ -98,6 +98,38 @@ function closeSocket(socket: Socket): Promise<void> {
   });
 }
 
+function waitForSocketClose(
+  socket: Socket,
+  timeout: number = 500,
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (socket.destroyed || socket.closed) {
+      resolve(true);
+      return;
+    }
+
+    const onClose = () => {
+      cleanup();
+      resolve(true);
+    };
+
+    const onTimeout = () => {
+      cleanup();
+      resolve(false);
+    };
+
+    const cleanup = () => {
+      clearTimeout(timeoutId);
+      socket.off("close", onClose);
+      socket.off("error", onClose);
+    };
+
+    const timeoutId = setTimeout(onTimeout, timeout);
+    socket.on("close", onClose);
+    socket.on("error", onClose);
+  });
+}
+
 describe("Test node functionality", () => {
   let server: ReturnType<typeof createServer>;
   let peerManager: PeerManager;
@@ -200,6 +232,130 @@ describe("Test node functionality", () => {
     await closeSocket(socket);
   });
 
+  test("should include peers sent earlier on same connection", async () => {
+    const testPeer = "140.82.50.252:18018";
+
+    const socket = await connectToNode();
+    await receiveMessages(socket, 200);
+
+    sendMessage(socket, {
+      type: MessageType.HELLO,
+      version: "0.10.0",
+      agent: "agent",
+    });
+
+    await receiveMessages(socket, 200);
+
+    sendMessage(socket, {
+      type: MessageType.PEERS,
+      peers: [testPeer],
+    });
+
+    await receiveMessages(socket, 200);
+
+    sendMessage(socket, { type: MessageType.GET_PEERS });
+
+    const messages = await receiveMessages(socket, 500);
+    const peersMessage = messages.find((m) => m.type === MessageType.PEERS);
+
+    expect(peersMessage).toBeDefined();
+    expect(peersMessage.peers).toContain(testPeer);
+
+    await closeSocket(socket);
+  });
+
+  test("should ignore loopback and private peers", async () => {
+    const validPeer = "140.82.50.252:18018";
+    const invalidPeers = [
+      "127.0.0.1:18018",
+      "localhost:18018",
+      "192.168.1.1:18018",
+      "10.0.0.1:18018",
+    ];
+
+    const socket = await connectToNode();
+    await receiveMessages(socket, 200);
+
+    sendMessage(socket, {
+      type: MessageType.HELLO,
+      version: "0.10.0",
+      agent: "agent",
+    });
+
+    await receiveMessages(socket, 200);
+
+    sendMessage(socket, {
+      type: MessageType.PEERS,
+      peers: [validPeer, ...invalidPeers],
+    });
+
+    await receiveMessages(socket, 200);
+
+    sendMessage(socket, { type: MessageType.GET_PEERS });
+
+    const messages = await receiveMessages(socket, 500);
+    const peersMessage = messages.find((m) => m.type === MessageType.PEERS);
+
+    expect(peersMessage).toBeDefined();
+    expect(peersMessage.peers).toContain(validPeer);
+    for (const invalidPeer of invalidPeers) {
+      expect(peersMessage.peers).not.toContain(invalidPeer);
+    }
+
+    await closeSocket(socket);
+  });
+
+  test("should deduplicate peers in peers message", async () => {
+    const testPeer = "140.82.50.252:18018";
+
+    const socket = await connectToNode();
+    await receiveMessages(socket, 200);
+
+    sendMessage(socket, {
+      type: MessageType.HELLO,
+      version: "0.10.0",
+      agent: "agent",
+    });
+
+    await receiveMessages(socket, 200);
+
+    sendMessage(socket, {
+      type: MessageType.PEERS,
+      peers: [testPeer, testPeer],
+    });
+
+    await receiveMessages(socket, 200);
+
+    sendMessage(socket, { type: MessageType.GET_PEERS });
+
+    const messages = await receiveMessages(socket, 500);
+    const peersMessage = messages.find((m) => m.type === MessageType.PEERS);
+
+    expect(peersMessage).toBeDefined();
+    const occurrences = peersMessage.peers.filter((p: string) => p === testPeer)
+      .length;
+    expect(occurrences).toBe(1);
+
+    await closeSocket(socket);
+  });
+
+  test("should support two parallel connections", async () => {
+    const [socket1, socket2] = await Promise.all([
+      connectToNode(),
+      connectToNode(),
+    ]);
+
+    const [messages1, messages2] = await Promise.all([
+      receiveMessages(socket1, 500),
+      receiveMessages(socket2, 500),
+    ]);
+
+    expect(messages1[0]).toHaveProperty("type", MessageType.HELLO);
+    expect(messages2[0]).toHaveProperty("type", MessageType.HELLO);
+
+    await Promise.all([closeSocket(socket1), closeSocket(socket2)]);
+  });
+
   test("should handle split messages (defragmentation)", async () => {
     const socket = await connectToNode();
 
@@ -255,6 +411,9 @@ describe("Test node functionality", () => {
       expect(errorMessage).toBeDefined();
       expect(errorMessage).toHaveProperty("name", ErrorCode.INVALID_FORMAT);
 
+      const closed = await waitForSocketClose(socket);
+      expect(closed).toBe(true);
+
       await closeSocket(socket);
     });
 
@@ -269,6 +428,9 @@ describe("Test node functionality", () => {
       expect(errorMessage).toBeDefined();
       expect(errorMessage).toHaveProperty("name", ErrorCode.INVALID_FORMAT);
 
+      const closed = await waitForSocketClose(socket);
+      expect(closed).toBe(true);
+
       await closeSocket(socket);
     });
 
@@ -282,6 +444,68 @@ describe("Test node functionality", () => {
       const errorMessage = messages.find((m) => m.type === MessageType.ERROR);
       expect(errorMessage).toBeDefined();
       expect(errorMessage).toHaveProperty("name", ErrorCode.INVALID_FORMAT);
+
+      const closed = await waitForSocketClose(socket);
+      expect(closed).toBe(true);
+
+      await closeSocket(socket);
+    });
+
+    test('Invalid hello - incompatible version: {"type":"hello", "version":"jd3.x"}', async () => {
+      const socket = await connectToNode();
+      await receiveMessages(socket, 200);
+
+      socket.write(JSON.stringify({ type: "hello", version: "jd3.x" }) + "\n");
+
+      const messages = await receiveMessages(socket, 500);
+      const errorMessage = messages.find((m) => m.type === MessageType.ERROR);
+      expect(errorMessage).toBeDefined();
+      expect(errorMessage).toHaveProperty("name", ErrorCode.INVALID_FORMAT);
+
+      const closed = await waitForSocketClose(socket);
+      expect(closed).toBe(true);
+
+      await closeSocket(socket);
+    });
+
+    test('Invalid hello - incompatible version: {"type":"hello", "version":"0.8.0"}', async () => {
+      const socket = await connectToNode();
+      await receiveMessages(socket, 200);
+
+      socket.write(JSON.stringify({ type: "hello", version: "0.8.0" }) + "\n");
+
+      const messages = await receiveMessages(socket, 500);
+      const errorMessage = messages.find((m) => m.type === MessageType.ERROR);
+      expect(errorMessage).toBeDefined();
+      expect(errorMessage).toHaveProperty("name", ErrorCode.INVALID_FORMAT);
+
+      const closed = await waitForSocketClose(socket);
+      expect(closed).toBe(true);
+
+      await closeSocket(socket);
+    });
+
+    test('Invalid peers message: {"type":"peers", "peers":["not-a-peer"]}', async () => {
+      const socket = await connectToNode();
+      await receiveMessages(socket, 200);
+
+      sendMessage(socket, {
+        type: MessageType.HELLO,
+        version: "0.10.0",
+        agent: "agent",
+      });
+
+      await receiveMessages(socket, 200);
+
+      socket.write(JSON.stringify({ type: "peers", peers: ["not-a-peer"] }) + "\n");
+
+      const messages = await receiveMessages(socket, 500);
+      const errorMessage = messages.find((m) => m.type === MessageType.ERROR);
+      expect(errorMessage).toBeDefined();
+      expect(errorMessage).toHaveProperty("name", ErrorCode.INVALID_FORMAT);
+
+      const closed = await waitForSocketClose(socket);
+      expect(closed).toBe(true);
 
       await closeSocket(socket);
     });

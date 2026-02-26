@@ -1,4 +1,5 @@
 import { Socket } from "net";
+import { isIP } from "node:net";
 import canonicalize from "canonicalize";
 import { SEPARATOR } from "./constants";
 import type { ValidMessage } from "./types";
@@ -33,6 +34,28 @@ export function parseHost(str: string) {
     host,
     port: portNum,
   };
+}
+
+export function normalizePeer(peer: string): string {
+  const trimmed = peer.trim();
+  const parsed = parseHost(trimmed);
+  if (!parsed || !Number.isFinite(parsed.port)) {
+    return trimmed;
+  }
+
+  const rawHost = parsed.host;
+  const isBracketed = rawHost.startsWith("[") && rawHost.endsWith("]");
+  const host = isBracketed ? rawHost.slice(1, -1) : rawHost;
+
+  if (host.startsWith("::ffff:")) {
+    const mapped = host.slice(7);
+    if (isIP(mapped) === 4) {
+      return `${mapped}:${parsed.port}`;
+    }
+  }
+
+  const formattedHost = isIP(host) === 6 ? `[${host}]` : host;
+  return `${formattedHost}:${parsed.port}`;
 }
 
 export const delay = (ms: number) =>
