@@ -28,18 +28,25 @@ export class PeerManager {
 
     if (isNaN(port) || port <= 0 || port > 65535) return false;
     const lowercaseHost = host.toLowerCase();
+    const normalizedHost =
+      lowercaseHost.startsWith("[") && lowercaseHost.endsWith("]")
+        ? lowercaseHost.slice(1, -1)
+        : lowercaseHost;
     if (
-      lowercaseHost === "localhost" ||
-      lowercaseHost === "loopback" ||
-      lowercaseHost === "[::1]" // IPv6 Localhost
+      normalizedHost === "localhost" ||
+      normalizedHost === "loopback" ||
+      normalizedHost === "::1" // IPv6 Localhost
     ) {
       return false;
     }
 
+    const ipv4Host = normalizedHost.startsWith("::ffff:")
+      ? normalizedHost.slice("::ffff:".length)
+      : normalizedHost;
     if (
-      host.startsWith("127.") ||
-      host.startsWith("10.") ||
-      host.startsWith("192.168.")
+      ipv4Host.startsWith("127.") ||
+      ipv4Host.startsWith("10.") ||
+      ipv4Host.startsWith("192.168.")
     ) {
       return false;
     }
