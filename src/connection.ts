@@ -72,7 +72,7 @@ export function handleInboundConnection(
       }
       handler(message, ctx);
 
-      logger.info(message, `[${id}]: Received message`);
+      logger.info({ type: message.type }, `[${id}]: Received message`);
     }
   });
 
