@@ -7,7 +7,7 @@ export function parseMessage(
   socket: Socket,
   logger: any,
 ): ValidMessage | null {
-  logger.info(`Message to parse ${msg}`);
+  logger.info(`Message to parse ${msg.slice(0, 200)}...`);
   let message;
   try {
     message = JSON.parse(msg);
