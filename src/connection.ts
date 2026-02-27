@@ -51,9 +51,6 @@ export function handleConnection(
       if (!checkHandshake(message, socket, state)) {
         return;
       }
-      if (message.type === MessageType.HELLO) {
-        await peerManager.add(id);
-      }
       const handler = messageHandlers[message.type];
       if (!handler) {
         logger.error(`No handler found for message type: ${message.type}`);
