@@ -23,6 +23,8 @@ export const BOOTSTRAP_PEERS = [
   "45.32.235.245:18018",
 ];
 
+export const INVALID_SELF_HOSTS = ["localhost", "loopback"];
+
 export const PEERS_FILE = "./peers.json";
 export const MAX_PEERS = 1000;
 export const OUTBOUND_PEER_LIMIT = 200;

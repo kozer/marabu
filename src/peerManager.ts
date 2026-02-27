@@ -1,5 +1,6 @@
 import {
   BOOTSTRAP_PEERS,
+  INVALID_SELF_HOSTS,
   MAX_PEERS,
   OUTBOUND_PEER_LIMIT,
   SERVER_HOST,
@@ -43,11 +44,13 @@ export class PeerManager {
 
     const lowercaseHost = normalizedHost.toLowerCase();
 
-    if (["localhost", "loopback"].includes(lowercaseHost)) {
+    const ipType = isIP(normalizedHost); // Returns 0 (DNS), 4 (IPv4), or 6 (IPv6)
+    if (
+      INVALID_SELF_HOSTS.includes(lowercaseHost) ||
+      (ipType === 4 && ip.cidrSubnet("0.0.0.0/8").contains(lowercaseHost))
+    ) {
       return false;
     }
-
-    const ipType = isIP(normalizedHost); // Returns 0 (DNS), 4 (IPv4), or 6 (IPv6)
 
     if (ipType !== 0) {
       try {
