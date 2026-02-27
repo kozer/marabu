@@ -25,8 +25,8 @@ export function parseMessage(
 
   try {
     message = MessageSchema.parse(message);
-  } catch (_) {
-    logger.error(`Unknown protocol message`, message);
+  } catch (error) {
+    logger.error({ err: error }, "Unknown protocol message");
     socket.write(
       new ProtocolError(
         ErrorCode.INVALID_FORMAT,
