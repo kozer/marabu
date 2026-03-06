@@ -22,6 +22,18 @@ const logger = {
   warn: (..._args: any[]) => {},
 };
 
+const db = {
+  async addObject(_key: string, _value: any): Promise<void> {
+    return;
+  },
+  async validateObject(_key: string, _value: any): Promise<boolean> {
+    return true;
+  },
+  async getObject(_key: string): Promise<any> {
+    return null;
+  },
+};
+
 const TEST_PORT = 18018;
 
 function connectToNode(port: number = TEST_PORT): Promise<Socket> {
@@ -144,7 +156,7 @@ describe("Test node functionality", () => {
     server = createServer();
     server.listen(TEST_PORT);
     server.on("connection", (socket: Socket) => {
-      handleInboundConnection(socket, peerManager, logger);
+      handleInboundConnection(socket, peerManager, logger, db);
     });
 
     await delay(500);
@@ -332,8 +344,9 @@ describe("Test node functionality", () => {
     const peersMessage = messages.find((m) => m.type === MessageType.PEERS);
 
     expect(peersMessage).toBeDefined();
-    const occurrences = peersMessage.peers.filter((p: string) => p === testPeer)
-      .length;
+    const occurrences = peersMessage.peers.filter(
+      (p: string) => p === testPeer,
+    ).length;
     expect(occurrences).toBe(1);
 
     await closeSocket(socket);
@@ -497,7 +510,9 @@ describe("Test node functionality", () => {
 
       await receiveMessages(socket, 200);
 
-      socket.write(JSON.stringify({ type: "peers", peers: ["not-a-peer"] }) + "\n");
+      socket.write(
+        JSON.stringify({ type: "peers", peers: ["not-a-peer"] }) + "\n",
+      );
 
       const messages = await receiveMessages(socket, 500);
       const errorMessage = messages.find((m) => m.type === MessageType.ERROR);
@@ -744,8 +759,7 @@ describe("Test node functionality", () => {
 
         const errorMessage = messages.find(
           (m) =>
-            m.type === MessageType.ERROR &&
-            m.name === ErrorCode.INVALID_FORMAT,
+            m.type === MessageType.ERROR && m.name === ErrorCode.INVALID_FORMAT,
         );
         expect(errorMessage).toBeDefined();
 

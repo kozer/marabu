@@ -1,9 +1,9 @@
 import z from "zod";
 import { MessageType } from "./constants";
 import { ErrorCode } from "./error";
-import { validateHost } from "./utils";
 import { Socket } from "net";
 import type { PeerManager } from "./peerManager";
+import type { DatabaseInterface } from "./db";
 
 export const HelloMessageSchema = z.object({
   type: z.literal(MessageType.HELLO),
@@ -35,18 +35,35 @@ export const ErrorMessageSchema = z.object({
   description: z.string(),
 });
 
-export const PeerSchema = z.string().refine(validateHost, {
-  message:
-    "Invalid peer format. Expected 'host:port', 'ipv4:port', or '[ipv6]:port'",
-});
-
 export const PeersMessageSchema = z.object({
   type: z.literal(MessageType.PEERS),
-  peers: z.array(PeerSchema),
+  peers: z.array(z.string()),
+});
+
+export const OutPointTransactionSchema = z.object({
+  txid: z.hex().length(64),
+  index: z.number().int().nonnegative(),
+});
+
+export const OutputTransactionSchema = z.object({
+  pubkey: z.hex().length(64),
+  value: z.number().int().nonnegative(),
+});
+
+export const InputTransactionSchema = z.object({
+  outpoint: OutPointTransactionSchema,
+  sig: z.hex().length(128).nullable(),
 });
 
 export const GetChainTipMessageSchema = z.object({
   type: z.literal(MessageType.GET_CHAIN_TIP),
+});
+
+export const TransactionSchema = z.object({
+  type: z.literal(MessageType.TRANSACTION),
+  height: z.number().int().nonnegative().optional(),
+  inputs: z.array(InputTransactionSchema).optional(),
+  outputs: z.array(OutputTransactionSchema),
 });
 
 export const MessageSchema = z.discriminatedUnion("type", [
@@ -58,6 +75,7 @@ export const MessageSchema = z.discriminatedUnion("type", [
   GetChainTipMessageSchema,
   GetMempoolMessageSchema,
   MempoolMessageSchema,
+  TransactionSchema,
 ]);
 
 export type ValidMessage = z.infer<typeof MessageSchema>;
@@ -69,10 +87,12 @@ export type ErrorMessage = z.infer<typeof ErrorMessageSchema>;
 export type GetChainTipMessage = z.infer<typeof GetChainTipMessageSchema>;
 export type GetMempoolMessage = z.infer<typeof GetMempoolMessageSchema>;
 export type MempoolMessage = z.infer<typeof MempoolMessageSchema>;
+export type TransactionMessage = z.infer<typeof TransactionSchema>;
 
 export interface PeerContext {
   socket: Socket;
   id: string;
   peerManager: PeerManager;
   logger: any;
+  db: DatabaseInterface;
 }

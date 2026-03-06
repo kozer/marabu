@@ -82,6 +82,15 @@ export const getChainTipHandler = async (
   );
 };
 
+export const transactionHandler = async (
+  _message: ValidMessage,
+  ctx: PeerContext,
+) => {
+  ctx.logger.info(
+    `Received transaction message from ${ctx.id}, but transaction handling is not implemented yet.`,
+  );
+};
+
 type GenericHandler = (
   message: ValidMessage,
   ctx: PeerContext,
@@ -99,4 +108,5 @@ export const messageHandlers: Record<
   [MessageType.GET_CHAIN_TIP]: getChainTipHandler as unknown as GenericHandler,
   [MessageType.GET_MEMPOOL]: getMempoolHandler as unknown as GenericHandler,
   [MessageType.MEMPOOL]: memPoolHandler as unknown as GenericHandler,
+  [MessageType.TRANSACTION]: transactionHandler as unknown as GenericHandler,
 };

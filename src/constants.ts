@@ -15,6 +15,7 @@ export enum MessageType {
   GET_CHAIN_TIP = "getchaintip",
   GET_MEMPOOL = "getmempool",
   MEMPOOL = "mempool",
+  TRANSACTION = "transaction",
 }
 
 export const BOOTSTRAP_PEERS = [
@@ -28,3 +29,5 @@ export const INVALID_SELF_HOSTS = ["localhost", "loopback"];
 export const PEERS_FILE = "./peers.json";
 export const MAX_PEERS = 1000;
 export const OUTBOUND_PEER_LIMIT = 200;
+
+export const DEFAULT_DB_PATH = "./marabudb";

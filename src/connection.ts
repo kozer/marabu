@@ -10,12 +10,14 @@ import { parseHost, sendMessage } from "./utils";
 import { parseMessage } from "./messageParser";
 import { messageHandlers } from "./messageHandlers";
 import type { PeerManager } from "./peerManager";
+import type { DatabaseInterface } from "./db";
 
 export function handleConnection(
   id: string,
   socket: Socket,
   peerManager: PeerManager,
   logger: any,
+  db: DatabaseInterface,
 ) {
   sendMessage(socket, {
     type: MessageType.HELLO,
@@ -34,6 +36,7 @@ export function handleConnection(
     socket,
     peerManager,
     logger,
+    db,
   };
   socket.on("data", async (data) => {
     buffer += data.toString();
@@ -44,7 +47,7 @@ export function handleConnection(
         logger.error(`Error defragmenting messages`);
         continue;
       }
-      const message = parseMessage(msg, socket, logger);
+      const message = parseMessage(msg, ctx);
       if (!message) {
         return;
       }
@@ -67,6 +70,7 @@ export function handleInboundConnection(
   socket: Socket,
   peerManager: PeerManager,
   logger: any,
+  db: DatabaseInterface,
 ) {
   const id = `${socket.remoteAddress}:${socket.remotePort}`;
   if (!peerManager.canAcceptInbound()) {
@@ -79,7 +83,7 @@ export function handleInboundConnection(
     `Inbound: ${peerManager.inboundConnections.size}. Total: ${peerManager.totalConnections}/${MAX_PEERS}`,
   );
   logger.info(`A new connection has been established from ${id}.`);
-  handleConnection(id, socket, peerManager, logger);
+  handleConnection(id, socket, peerManager, logger, db);
 
   socket.on("end", function () {
     logger.info("Closing connection with the client");
@@ -95,6 +99,7 @@ export function handleInboundConnection(
 export function handleOutboundConnection(
   peerManager: PeerManager,
   logger: any,
+  db: DatabaseInterface,
 ) {
   if (!peerManager.canAcceptOutbound()) {
     logger.debug("Discovery loop: Outbound peer limit reached. Skipping.");
@@ -134,7 +139,7 @@ export function handleOutboundConnection(
       logger.info(`Successfully connected to ${cleanPeer}!`);
       peerManager.onDialSuccess(peer);
       client.setTimeout(0);
-      handleConnection(cleanPeer, client, peerManager, logger);
+      handleConnection(cleanPeer, client, peerManager, logger, db);
     });
 
     client.on("error", (err) => {

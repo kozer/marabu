@@ -2,19 +2,11 @@ import { Socket } from "net";
 import { isIP } from "node:net";
 import canonicalize from "canonicalize";
 import { SEPARATOR } from "./constants";
-import type { ValidMessage } from "./types";
+import type { TransactionMessage, ValidMessage } from "./types";
 
 export function sendMessage(socket: Socket, message: ValidMessage) {
   const messageStr = canonicalize(message) + SEPARATOR;
   socket.write(messageStr);
-}
-
-export function validateHost(str: string) {
-  const { port } = parseHost(str) || {};
-  if (!port) {
-    return false;
-  }
-  return Number.isInteger(port) && port > 0 && port <= 65535;
 }
 
 export function parseHost(str: string) {
