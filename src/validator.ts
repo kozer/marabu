@@ -1,7 +1,7 @@
 import { MessageType } from "./constants";
 import ProtocolError, { ErrorCode } from "./error";
 import type {
-  PeerContext,
+  ConnectedPeerContext,
   PeersMessage,
   TransactionMessage,
   ValidMessage,
@@ -18,7 +18,7 @@ export function validateHost(host: string): boolean {
 
 export function validatePeers(
   message: PeersMessage,
-  _ctx: PeerContext,
+  _ctx: ConnectedPeerContext,
 ): boolean {
   for (const peer of message.peers) {
     if (!validateHost(peer)) {
@@ -57,7 +57,7 @@ export function verifyLawOfConservation(
 }
 export function validateTransaction(
   tx: TransactionMessage,
-  _ctx: PeerContext,
+  _ctx: ConnectedPeerContext,
 ): boolean {
   const isCoinbase = tx.height !== undefined && tx.inputs === undefined;
   if (!isCoinbase) {
@@ -80,20 +80,23 @@ export function validateTransaction(
 
 type GenericValidator = (
   message: ValidMessage,
-  ctx: PeerContext,
+  ctx: ConnectedPeerContext,
 ) => Promise<void>;
 
 export const validatorHandlers: Partial<
   Record<
     MessageType,
-    (message: ValidMessage, ctx: PeerContext) => Promise<void>
+    (message: ValidMessage, ctx: ConnectedPeerContext) => Promise<void>
   >
 > = {
   [MessageType.PEERS]: validatePeers as unknown as GenericValidator,
   [MessageType.TRANSACTION]: validateTransaction as unknown as GenericValidator,
 };
 
-export const validateMessage = (message: ValidMessage, ctx: PeerContext) => {
+export const validateMessage = (
+  message: ValidMessage,
+  ctx: ConnectedPeerContext,
+) => {
   const validator = validatorHandlers[message.type];
   if (validator) {
     validator(message, ctx);

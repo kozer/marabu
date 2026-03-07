@@ -19,11 +19,23 @@ async function startNode() {
       `Server listening for connection requests on socket localhost:${SERVER_PORT}`,
     );
   });
+
+  const ctx = {
+    peerManager,
+    logger,
+    db,
+  };
   server.on("connection", function (socket: Socket) {
-    handleInboundConnection(socket, peerManager, logger, db);
+    const id = `${socket.remoteAddress}:${socket.remotePort}`;
+    const connectedCtx = {
+      id,
+      socket,
+      ...ctx,
+    };
+    handleInboundConnection(connectedCtx);
   });
-  handleOutboundConnection(peerManager, logger, db);
-  setInterval(() => handleOutboundConnection(peerManager, logger, db), 60000);
+  handleOutboundConnection(ctx);
+  setInterval(() => handleOutboundConnection(ctx), 60000);
 }
 
 startNode();

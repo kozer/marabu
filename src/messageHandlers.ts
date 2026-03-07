@@ -1,6 +1,5 @@
 import { MessageType } from "./constants";
 import type {
-  PeerContext,
   ValidMessage,
   HelloMessage,
   TextMessage,
@@ -10,6 +9,7 @@ import type {
   GetChainTipMessage,
   GetMempoolMessage,
   MempoolMessage,
+  ConnectedPeerContext,
 } from "./types";
 import { sendMessage } from "./utils";
 
@@ -25,7 +25,7 @@ export const textHandler = async (message: TextMessage) => {
 
 export const getPeersHandler = async (
   _message: GetPeersMessage,
-  ctx: PeerContext,
+  ctx: ConnectedPeerContext,
 ) => {
   console.log(`Received GET_PEERS message`);
   sendMessage(ctx.socket, {
@@ -34,7 +34,10 @@ export const getPeersHandler = async (
   });
 };
 
-export const peersHandler = async (message: PeersMessage, ctx: PeerContext) => {
+export const peersHandler = async (
+  message: PeersMessage,
+  ctx: ConnectedPeerContext,
+) => {
   const newPeers = [];
   for (const peer of message.peers) {
     const normalizedPeer = peer.trim();
@@ -45,7 +48,10 @@ export const peersHandler = async (message: PeersMessage, ctx: PeerContext) => {
   await ctx.peerManager.addAll(newPeers);
 };
 
-export const errorHandler = async (message: ErrorMessage, ctx: PeerContext) => {
+export const errorHandler = async (
+  message: ErrorMessage,
+  ctx: ConnectedPeerContext,
+) => {
   ctx.logger.error(
     `Received error from client: ${message.name} - ${message.description}`,
   );
@@ -53,7 +59,7 @@ export const errorHandler = async (message: ErrorMessage, ctx: PeerContext) => {
 
 export const getMempoolHandler = async (
   _message: GetMempoolMessage,
-  ctx: PeerContext,
+  ctx: ConnectedPeerContext,
 ) => {
   ctx.logger.info(
     `Received request for mempool from ${ctx.id}, but this functionality is not implemented yet.`,
@@ -62,7 +68,7 @@ export const getMempoolHandler = async (
 
 export const memPoolHandler = async (
   message: MempoolMessage,
-  ctx: PeerContext,
+  ctx: ConnectedPeerContext,
 ) => {
   ctx.logger.info(
     `Received mempool message from ${ctx.id} with txids: ${message.txids.join(", ")}, but this functionality is not implemented yet.`,
@@ -75,7 +81,7 @@ export const memPoolHandler = async (
 
 export const getChainTipHandler = async (
   _message: GetChainTipMessage,
-  ctx: PeerContext,
+  ctx: ConnectedPeerContext,
 ) => {
   ctx.logger.info(
     `Received request for chain tip from ${ctx.id}, but this functionality is not implemented yet.`,
@@ -84,7 +90,7 @@ export const getChainTipHandler = async (
 
 export const transactionHandler = async (
   _message: ValidMessage,
-  ctx: PeerContext,
+  ctx: ConnectedPeerContext,
 ) => {
   ctx.logger.info(
     `Received transaction message from ${ctx.id}, but transaction handling is not implemented yet.`,
@@ -93,12 +99,12 @@ export const transactionHandler = async (
 
 type GenericHandler = (
   message: ValidMessage,
-  ctx: PeerContext,
+  ctx: ConnectedPeerContext,
 ) => Promise<void>;
 
 export const messageHandlers: Record<
   MessageType,
-  (message: ValidMessage, ctx: PeerContext) => Promise<void>
+  (message: ValidMessage, ctx: ConnectedPeerContext) => Promise<void>
 > = {
   [MessageType.HELLO]: helloHandler as unknown as GenericHandler,
   [MessageType.TEXT]: textHandler as unknown as GenericHandler,

@@ -1,10 +1,14 @@
 import ProtocolError, { ErrorCode } from "./error";
-import { MessageSchema, type PeerContext, type ValidMessage } from "./types";
+import {
+  MessageSchema,
+  type ConnectedPeerContext,
+  type ValidMessage,
+} from "./types";
 import { validateMessage } from "./validator";
 
 export function parseMessage(
   msg: string,
-  ctx: PeerContext,
+  ctx: ConnectedPeerContext,
 ): ValidMessage | null {
   ctx.logger.info(`Message to parse ${msg.slice(0, 200)}...`);
   let message;

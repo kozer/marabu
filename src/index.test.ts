@@ -156,7 +156,15 @@ describe("Test node functionality", () => {
     server = createServer();
     server.listen(TEST_PORT);
     server.on("connection", (socket: Socket) => {
-      handleInboundConnection(socket, peerManager, logger, db);
+      const id = `${socket.remoteAddress}:${socket.remotePort}`;
+      const ctx = {
+        id,
+        socket,
+        peerManager,
+        logger,
+        db,
+      };
+      handleInboundConnection(ctx);
     });
 
     await delay(500);

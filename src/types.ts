@@ -90,9 +90,11 @@ export type MempoolMessage = z.infer<typeof MempoolMessageSchema>;
 export type TransactionMessage = z.infer<typeof TransactionSchema>;
 
 export interface PeerContext {
-  socket: Socket;
-  id: string;
   peerManager: PeerManager;
   logger: any;
   db: DatabaseInterface;
 }
+export type ConnectedPeerContext = PeerContext & {
+  socket: Socket;
+  id: string;
+};
