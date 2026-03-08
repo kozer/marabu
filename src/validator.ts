@@ -139,12 +139,6 @@ export async function verifySignatures(
   return true;
 }
 
-export function verifyPublicKeys(
-  _outputs: TransactionMessage["outputs"],
-): boolean {
-  return true;
-}
-
 export function verifyLawOfConservation(
   resolvedInputs: ResolvedInput[],
   newOutputs: OutputTransactionMessage[],
@@ -185,7 +179,7 @@ export async function validateTransaction(
      the given txid exists in your object database and that the given index is less than
      the number of outputs in the outpoint transaction.
 
-     VERIFIED BY verifyPublicKeys function
+     VERIFIED BY verifySignatures function
      b) For each input, verify the signature. Our protocol uses ed25519 signatures. A
      Typescript package for ed25519 is available [4]. Note that signatures and public
      keys are given as hex strings in our protocol but the package uses Uint8 arrays, so
