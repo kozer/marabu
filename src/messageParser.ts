@@ -6,10 +6,10 @@ import {
 } from "./types";
 import { validateMessage } from "./validator";
 
-export function parseMessage(
+export async function parseMessage(
   msg: string,
   ctx: ConnectedPeerContext,
-): ValidMessage | null {
+): Promise<ValidMessage | null> {
   ctx.logger.info(`Message to parse ${msg.slice(0, 200)}...`);
   let message;
   try {
@@ -28,7 +28,7 @@ export function parseMessage(
 
   try {
     message = MessageSchema.parse(message);
-    validateMessage(message, ctx);
+    await validateMessage(message, ctx);
   } catch (error) {
     if (error instanceof ProtocolError) {
       ctx.logger.error(`Protocol validation failed: ${error.code}`);

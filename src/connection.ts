@@ -33,7 +33,7 @@ export function handleConnection(ctx: ConnectedPeerContext) {
         ctx.logger.error(`Error defragmenting messages`);
         continue;
       }
-      const message = parseMessage(msg, ctx);
+      const message = await parseMessage(msg, ctx);
       if (!message) {
         return;
       }

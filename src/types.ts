@@ -88,6 +88,11 @@ export type GetChainTipMessage = z.infer<typeof GetChainTipMessageSchema>;
 export type GetMempoolMessage = z.infer<typeof GetMempoolMessageSchema>;
 export type MempoolMessage = z.infer<typeof MempoolMessageSchema>;
 export type TransactionMessage = z.infer<typeof TransactionSchema>;
+export type OutputTransactionMessage = z.infer<typeof OutputTransactionSchema>;
+export type InputTransactionMessage = z.infer<typeof InputTransactionSchema>;
+export type ResolvedInput = z.infer<typeof InputTransactionSchema> & {
+  resolvedOutput: z.infer<typeof OutputTransactionSchema>;
+};
 
 export interface PeerContext {
   peerManager: PeerManager;
