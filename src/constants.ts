@@ -31,3 +31,4 @@ export const MAX_PEERS = 1000;
 export const OUTBOUND_PEER_LIMIT = 200;
 
 export const DEFAULT_DB_PATH = "./marabudb";
+export const DNS_BLACKLIST_TTL_MS = 60 * 60 * 1000;

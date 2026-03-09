@@ -1,4 +1,4 @@
-import level from "level-ts";
+import level from "level";
 import { DEFAULT_DB_PATH } from "./constants";
 import canonicalize from "canonicalize";
 
@@ -9,13 +9,21 @@ export interface DatabaseInterface {
 }
 
 class LevelDatabase implements DatabaseInterface {
-  private db: level;
+  private db: ReturnType<typeof level>;
+
   constructor(path: string) {
-    this.db = new level(path || DEFAULT_DB_PATH);
+    this.db = level(path || DEFAULT_DB_PATH);
   }
+
   async addObject(key: string, value: any): Promise<void> {
-    return this.db.put(key, canonicalize(value));
+    const serialized = canonicalize(value);
+    if (!serialized) {
+      throw new Error("Failed to canonicalize object for storage");
+    }
+
+    await this.db.put(key, serialized);
   }
+
   async validateObject(key: string, value: any): Promise<boolean> {
     try {
       const storedValue = await this.db.get(key);
@@ -25,6 +33,7 @@ class LevelDatabase implements DatabaseInterface {
       return false;
     }
   }
+
   async getObject(key: string): Promise<any> {
     try {
       const storedValue = await this.db.get(key);

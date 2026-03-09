@@ -24,6 +24,7 @@ export class PeerManager {
     const normalizedPeer = normalizePeer(peer);
     if (
       this.knownPeers.has(normalizedPeer) ||
+      this.dialPolicy.isBlacklisted(normalizedPeer) ||
       !this.isValidPeer(normalizedPeer)
     ) {
       return null;
@@ -184,6 +185,16 @@ export class PeerManager {
     this.connectionRegistry.unregister(peer);
   }
 
+  blacklistPeer(peer: string, ttlMs: number, reason: string): void {
+    this.dialPolicy.blacklistPeer(peer, ttlMs, reason);
+    this.connectionRegistry.unregister(peer);
+
+    if (this.knownPeers.delete(peer)) {
+      this.logger.info(`Removed blacklisted peer from address book: ${peer}`);
+      this.save();
+    }
+  }
+
   get inboundConnectionCount(): number {
     return this.connectionRegistry.inboundCount;
   }
@@ -214,7 +225,10 @@ export class PeerManager {
 
   getOutboundCandidates(): string[] {
     return this.getKnownPeers().filter((peer) => {
-      if (this.connectionRegistry.hasOutbound(peer) || !this.isValidPeer(peer)) {
+      if (
+        this.connectionRegistry.hasOutbound(peer) ||
+        !this.isValidPeer(peer)
+      ) {
         return false;
       }
 

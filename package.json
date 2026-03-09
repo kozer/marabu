@@ -22,6 +22,8 @@
   },
   "dependencies": {
     "@noble/ed25519": "^3.0.0",
+    "@types/blake2": "^4.0.4",
+    "@types/level": "^8.0.0",
     "blake2": "^5.0.1",
     "canonicalize": "^2.1.0",
     "ip": "^2.0.1",

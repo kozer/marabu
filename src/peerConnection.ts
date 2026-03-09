@@ -1,4 +1,4 @@
-import { MessageType, SEPARATOR } from "./constants";
+import { DNS_BLACKLIST_TTL_MS, MessageType, SEPARATOR } from "./constants";
 import ProtocolError, { ErrorCode } from "./error";
 import { checkHandshake, type ConnectionState } from "./handshake";
 import { messageHandlers } from "./messageHandlers";
@@ -46,6 +46,17 @@ export class PeerConnection {
       this.ctx.logger.info(`Error: ${err}`);
       this.ctx.peerManager.unregisterConnection(this.id);
       this.ctx.peerManager.onDialFail(this.id);
+      if (
+        err.message.includes("ENOTFOUND") ||
+        err.message.includes("EAI_AGAIN")
+      ) {
+        this.ctx.peerManager.blacklistPeer(
+          this.id,
+          DNS_BLACKLIST_TTL_MS,
+          err.message,
+        );
+        return;
+      }
       this.send(
         new ProtocolError(
           ErrorCode.INTERNAL_ERROR,

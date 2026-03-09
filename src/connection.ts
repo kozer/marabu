@@ -58,12 +58,12 @@ export function handleOutboundConnection(ctx: PeerContext) {
       socket: client,
       ...ctx,
     };
-    const connection = new PeerConnection(connectedContext);
 
     client.connect(port, cleanHost, () => {
       ctx.logger.info(`Successfully connected to ${cleanPeer}!`);
       client.setTimeout(0);
       ctx.peerManager.registerOutboundConnection(connection);
     });
+    const connection = new PeerConnection(connectedContext);
   }
 }
