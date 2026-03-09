@@ -30,7 +30,7 @@ export const getPeersHandler = async (
   console.log(`Received GET_PEERS message`);
   sendMessage(ctx.socket, {
     type: MessageType.PEERS,
-    peers: ctx.peerManager.getAll(),
+    peers: ctx.peerManager.getPeersForAdvertisement(),
   });
 };
 
@@ -41,11 +41,11 @@ export const peersHandler = async (
   const newPeers = [];
   for (const peer of message.peers) {
     const normalizedPeer = peer.trim();
-    if (!ctx.peerManager.getPeers().has(normalizedPeer)) {
+    if (!ctx.peerManager.getKnownPeerSet().has(normalizedPeer)) {
       newPeers.push(normalizedPeer);
     }
   }
-  await ctx.peerManager.addAll(newPeers);
+  await ctx.peerManager.addKnownPeers(newPeers);
 };
 
 export const errorHandler = async (

@@ -1,26 +1,35 @@
 import {
   BOOTSTRAP_PEERS,
   INVALID_SELF_HOSTS,
-  MAX_PEERS,
-  OUTBOUND_PEER_LIMIT,
   SERVER_HOST,
   SERVER_PORT,
 } from "./constants";
 import { normalizePeer, parseHost } from "./utils";
 import type { PeerStore } from "./peerStore";
+import type { PeerConnection } from "./peerConnection";
+import { ConnectionRegistry } from "./connectionRegistry";
+import { DialPolicy } from "./dialPolicy";
 import ip from "ip";
 import { isIP } from "node:net";
 
 export class PeerManager {
-  private readonly MAX_PEERS = MAX_PEERS;
-  private peerAddressBook: Set<string>;
-  inboundConnections = new Set<string>();
-  outboundConnections = new Set<string>();
-  private failedAttempts = new Map<string, number>();
-  private lastAttempt = new Map<string, number>();
+  private knownPeers: Set<string>;
   private readonly store: PeerStore;
   private readonly myNode = `${SERVER_HOST}:${SERVER_PORT}`;
   private readonly logger: any;
+  private readonly connectionRegistry: ConnectionRegistry;
+  private readonly dialPolicy: DialPolicy;
+
+  private toValidatedNormalizedPeer(peer: string): string | null {
+    const normalizedPeer = normalizePeer(peer);
+    if (
+      this.knownPeers.has(normalizedPeer) ||
+      !this.isValidPeer(normalizedPeer)
+    ) {
+      return null;
+    }
+    return normalizedPeer;
+  }
 
   isValidPeer(peer: string): boolean {
     if (!peer || !peer.trim()) {
@@ -70,45 +79,49 @@ export class PeerManager {
 
   constructor(store: PeerStore, logger: any) {
     this.store = store;
-    this.peerAddressBook = new Set(BOOTSTRAP_PEERS);
+    this.knownPeers = new Set();
     this.logger = logger;
+    this.connectionRegistry = new ConnectionRegistry(logger);
+    this.dialPolicy = new DialPolicy(logger);
   }
 
-  has(peer: string): boolean {
-    return this.peerAddressBook.has(peer);
+  hasKnownPeer(peer: string): boolean {
+    return this.knownPeers.has(peer);
   }
 
-  getAll(): string[] {
-    return [...this.peerAddressBook];
+  getKnownPeers(): string[] {
+    return [...this.knownPeers];
   }
 
-  getPeers(): Set<string> {
-    return this.peerAddressBook;
-  }
-
-  async add(peer: string): Promise<void> {
-    const normalizedPeer = normalizePeer(peer);
-    if (
-      !this.peerAddressBook.has(normalizedPeer) &&
-      this.isValidPeer(normalizedPeer)
-    ) {
-      this.peerAddressBook.add(normalizedPeer);
-      this.logger.info(`Added new peer: ${normalizedPeer}`);
-      await this.save();
+  getPeersForAdvertisement(): string[] {
+    const peers = this.getKnownPeers();
+    if (!peers.includes(this.myNode)) {
+      peers.unshift(this.myNode);
     }
+    return peers;
   }
 
-  async addAll(peers: string[]): Promise<void> {
-    const newPeers = [];
+  getKnownPeerSet(): ReadonlySet<string> {
+    return this.knownPeers;
+  }
+
+  async addKnownPeer(peer: string): Promise<void> {
+    const normalizedPeer = this.toValidatedNormalizedPeer(peer);
+    if (!normalizedPeer) return;
+
+    this.knownPeers.add(normalizedPeer);
+    this.logger.info(`Added new peer: ${normalizedPeer}`);
+    await this.save();
+  }
+
+  async addKnownPeers(peers: string[]): Promise<void> {
+    const newPeers: string[] = [];
     for (const peer of peers) {
-      const normalizedPeer = normalizePeer(peer);
-      if (
-        !this.peerAddressBook.has(normalizedPeer) &&
-        this.isValidPeer(normalizedPeer)
-      ) {
-        newPeers.push(normalizedPeer);
-        this.peerAddressBook.add(normalizedPeer);
-      }
+      const normalizedPeer = this.toValidatedNormalizedPeer(peer);
+      if (!normalizedPeer) continue;
+
+      newPeers.push(normalizedPeer);
+      this.knownPeers.add(normalizedPeer);
     }
     if (newPeers.length > 0) {
       this.logger.info(
@@ -121,94 +134,91 @@ export class PeerManager {
   async load(): Promise<string[]> {
     try {
       const storedPeers = await this.store.load();
-      const combinedPeers = [...BOOTSTRAP_PEERS, ...storedPeers, this.myNode];
       this.logger.info(`My node address: ${this.myNode}`);
-      this.peerAddressBook = new Set(combinedPeers);
-      this.logger.info(
-        `Loaded ${this.peerAddressBook.size} peers from storage.`,
-      );
 
-      return this.getAll();
+      if (storedPeers.length === 0) {
+        this.knownPeers = new Set(BOOTSTRAP_PEERS);
+        await this.save();
+      } else {
+        this.knownPeers = new Set(storedPeers);
+      }
+
+      this.logger.info(`Loaded ${this.knownPeers.size} peers from storage.`);
+
+      return this.getKnownPeers();
     } catch (err) {
       this.logger.error(err, "Failed to load peers from storage");
-      this.peerAddressBook = new Set([...BOOTSTRAP_PEERS, this.myNode]);
-      return this.getAll();
+      this.knownPeers = new Set([...BOOTSTRAP_PEERS]);
+      return this.getKnownPeers();
     }
   }
 
   async save(): Promise<void> {
     try {
-      const peersArray = this.getAll();
-      await this.store.save(peersArray);
-      this.logger.info(`Saved ${peersArray.length} peers to storage.`);
+      const peersToPersist = this.getKnownPeers();
+      await this.store.save(peersToPersist);
+      this.logger.info(`Saved ${peersToPersist.length} peers to storage.`);
     } catch (err) {
       this.logger.error(err, "Failed to save peers to storage");
     }
   }
 
-  onConnectionOpen(id: string): void {
-    this.inboundConnections.add(id);
+  registerInboundConnection(connection: PeerConnection): void {
+    this.connectionRegistry.registerInbound(connection);
+  }
+
+  registerOutboundConnection(connection: PeerConnection): void {
+    this.dialPolicy.markSuccess(connection.id);
+    this.connectionRegistry.registerOutbound(connection);
     this.logger.info(
-      `Peer connected: ${id}. Active peers: ${this.inboundConnections.size}`,
+      `Outbound peer connected: ${connection.id}. Active outbound peers: ${this.connectionRegistry.outboundCount}`,
     );
   }
 
-  onConnectionClose(id: string): void {
-    this.inboundConnections.delete(id);
-    this.logger.info(
-      `Peer disconnected: ${id}. Active peers: ${this.inboundConnections.size}`,
-    );
+  unregisterConnection(id: string): void {
+    this.connectionRegistry.unregister(id);
+  }
+
+  onDialFail(peer: string): void {
+    this.dialPolicy.markFailure(peer);
+    this.connectionRegistry.unregister(peer);
+  }
+
+  get inboundConnectionCount(): number {
+    return this.connectionRegistry.inboundCount;
+  }
+
+  get outboundConnectionCount(): number {
+    return this.connectionRegistry.outboundCount;
   }
 
   canAcceptInbound(): boolean {
-    return this.inboundConnections.size < this.MAX_PEERS - OUTBOUND_PEER_LIMIT;
+    return this.connectionRegistry.canAcceptInbound();
   }
 
   canAcceptOutbound(): boolean {
-    return this.outboundConnections.size < OUTBOUND_PEER_LIMIT;
+    return this.connectionRegistry.canAcceptOutbound();
   }
 
   get totalConnections(): number {
-    return this.inboundConnections.size + this.outboundConnections.size;
+    return this.connectionRegistry.totalCount;
   }
 
-  onDialFail(peer: string) {
-    const attempts = (this.failedAttempts.get(peer) || 0) + 1;
-    this.failedAttempts.set(peer, attempts);
-    this.lastAttempt.set(peer, Date.now());
-    this.outboundConnections.delete(peer);
-
-    this.logger.debug(`Peer ${peer} failed. Total attempts: ${attempts}`);
+  getConnectedPeers(): PeerConnection[] {
+    return this.connectionRegistry.getConnectedPeers();
   }
 
-  onDialSuccess(peer: string) {
-    this.failedAttempts.delete(peer);
-    this.lastAttempt.set(peer, Date.now());
-    this.outboundConnections.add(peer);
+  getConnectedPeersExcept(peerId: string): PeerConnection[] {
+    return this.connectionRegistry.getConnectedPeersExcept(peerId);
   }
 
   getOutboundCandidates(): string[] {
-    const now = Date.now();
-
-    return this.getAll().filter((peer) => {
-      if (
-        this.inboundConnections.has(peer) ||
-        this.outboundConnections.has(peer) ||
-        !this.isValidPeer(peer)
-      ) {
+    return this.getKnownPeers().filter((peer) => {
+      if (this.connectionRegistry.hasOutbound(peer) || !this.isValidPeer(peer)) {
         return false;
       }
 
-      const failures = this.failedAttempts.get(peer) || 0;
-      const lastTime = this.lastAttempt.get(peer) || 0;
-
-      if (failures > 0) {
-        //Exponential backoff: 1 min after 1 failure, 2 min after 2 failures etc
-        const cooldown = Math.pow(2, failures) * 60 * 1000;
-        if (now - lastTime < cooldown) return false;
-      }
-
-      return true;
+      return this.dialPolicy.canDial(peer);
     });
   }
 }

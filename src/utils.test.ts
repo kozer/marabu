@@ -64,7 +64,22 @@ describe("parseHost", () => {
 
   test("should return false for non-numeric port", () => {
     const result = parseHost("192.168.1.1:abc");
-    expect(result).toEqual({ host: "192.168.1.1", port: NaN });
+    expect(result).toBe(false);
+  });
+
+  test("should return false for port with junk suffix", () => {
+    const result = parseHost("192.168.1.1:8080abc");
+    expect(result).toBe(false);
+  });
+
+  test("should return false for out-of-range port", () => {
+    const result = parseHost("192.168.1.1:65536");
+    expect(result).toBe(false);
+  });
+
+  test("should return false for malformed bracket host", () => {
+    const result = parseHost("[::1:8080");
+    expect(result).toBe(false);
   });
 
   test("should handle localhost with trailing newline", () => {

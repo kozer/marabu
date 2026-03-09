@@ -1,57 +1,8 @@
 import { Socket } from "net";
-import {
-  MAX_PEERS,
-  MessageType,
-  OUTBOUND_PEER_LIMIT,
-  SEPARATOR,
-} from "./constants";
-import { checkHandshake, type ConnectionState } from "./handshake";
-import { parseHost, sendMessage } from "./utils";
-import { parseMessage } from "./messageParser";
-import { messageHandlers } from "./messageHandlers";
+import { MAX_PEERS, OUTBOUND_PEER_LIMIT } from "./constants";
+import { parseHost } from "./utils";
 import type { ConnectedPeerContext, PeerContext } from "./types";
-import ProtocolError, { ErrorCode } from "./error";
-
-export function handleConnection(ctx: ConnectedPeerContext) {
-  sendMessage(ctx.socket, {
-    type: MessageType.HELLO,
-    version: "0.10.0",
-    agent: "Subzero node client",
-  });
-
-  sendMessage(ctx.socket, {
-    type: MessageType.GET_PEERS,
-  });
-
-  let buffer = "";
-  const state: ConnectionState = { hasHandshaked: false };
-  ctx.socket.on("data", async (data) => {
-    buffer += data.toString();
-    const messages = buffer.split(SEPARATOR);
-    buffer = messages.pop() || "";
-    for (const msg of messages) {
-      if (!msg.trim()) {
-        ctx.logger.error(`Error defragmenting messages`);
-        continue;
-      }
-      const message = await parseMessage(msg, ctx);
-      if (!message) {
-        return;
-      }
-      if (!checkHandshake(message, ctx.socket, state)) {
-        return;
-      }
-      const handler = messageHandlers[message.type];
-      if (!handler) {
-        ctx.logger.error(`No handler found for message type: ${message.type}`);
-        continue;
-      }
-      handler(message, ctx);
-
-      ctx.logger.info({ type: message.type }, `[${ctx.id}]: Received message`);
-    }
-  });
-}
+import { PeerConnection } from "./peerConnection";
 
 export function handleInboundConnection(ctx: ConnectedPeerContext) {
   if (!ctx.peerManager.canAcceptInbound()) {
@@ -59,47 +10,12 @@ export function handleInboundConnection(ctx: ConnectedPeerContext) {
     ctx.socket.destroy(); // Hang up immediately
     return;
   }
-  ctx.peerManager.onConnectionOpen(ctx.id);
+  const connection = new PeerConnection(ctx);
+  ctx.peerManager.registerInboundConnection(connection);
   ctx.logger.info(
-    `Inbound: ${ctx.peerManager.inboundConnections.size}. Total: ${ctx.peerManager.totalConnections}/${MAX_PEERS}`,
+    `Inbound: ${ctx.peerManager.inboundConnectionCount}. Total: ${ctx.peerManager.totalConnections}/${MAX_PEERS}`,
   );
   ctx.logger.info(`A new connection has been established from ${ctx.id}.`);
-  handleConnection(ctx);
-  ctx.socket.on("end", function () {
-    ctx.logger.info("Closing connection with the client");
-    ctx.peerManager.onConnectionClose(ctx.id);
-  });
-
-  ctx.socket.on("error", (err) => {
-    ctx.logger.info(`Error: ${err}`);
-    ctx.peerManager.onConnectionClose(ctx.id);
-    sendMessage(
-      ctx.socket,
-      new ProtocolError(
-        ErrorCode.INTERNAL_ERROR,
-        `Socket produced error: ${err.message}`,
-      ),
-    );
-  });
-  ctx.socket.on("timeout", () => {
-    sendMessage(
-      ctx.socket,
-      new ProtocolError(
-        ErrorCode.INTERNAL_ERROR,
-        `Socket timed out`,
-      ),
-    );
-  });
-  ctx.socket.on("finish", () => {
-    sendMessage(
-      ctx.socket,
-      new ProtocolError(
-        ErrorCode.INTERNAL_ERROR,
-        `Socket finished`,
-      ),
-    );
-    ctx.socket.end();
-  });
 }
 
 export function handleOutboundConnection(ctx: PeerContext) {
@@ -108,7 +24,7 @@ export function handleOutboundConnection(ctx: PeerContext) {
     return;
   }
   const peersToConnect =
-    OUTBOUND_PEER_LIMIT - ctx.peerManager.outboundConnections.size;
+    OUTBOUND_PEER_LIMIT - ctx.peerManager.outboundConnectionCount;
   const candidates = ctx.peerManager.getOutboundCandidates();
 
   if (candidates.length === 0) {
@@ -119,7 +35,7 @@ export function handleOutboundConnection(ctx: PeerContext) {
     .sort(() => Math.random() - 0.5)
     .slice(0, peersToConnect);
   ctx.logger.info(
-    `Discovery loop: Attempting to connect to ${peers.length} peer(s). Outbound: ${ctx.peerManager.outboundConnections.size}/${OUTBOUND_PEER_LIMIT}, Total: ${ctx.peerManager.totalConnections}/${MAX_PEERS}`,
+    `Discovery loop: Attempting to connect to ${peers.length} peer(s). Outbound: ${ctx.peerManager.outboundConnectionCount}/${OUTBOUND_PEER_LIMIT}, Total: ${ctx.peerManager.totalConnections}/${MAX_PEERS}`,
   );
 
   for (const peer of peers) {
@@ -142,47 +58,12 @@ export function handleOutboundConnection(ctx: PeerContext) {
       socket: client,
       ...ctx,
     };
+    const connection = new PeerConnection(connectedContext);
+
     client.connect(port, cleanHost, () => {
       ctx.logger.info(`Successfully connected to ${cleanPeer}!`);
-      ctx.peerManager.onDialSuccess(peer);
       client.setTimeout(0);
-      handleConnection(connectedContext);
-    });
-
-    client.on("error", (err) => {
-      ctx.logger.warn(
-        `Failed to connect to bootstrap peer ${peer}: ${err.message}`,
-      );
-      ctx.peerManager.onDialFail(peer);
-      sendMessage(
-        client,
-        new ProtocolError(
-          ErrorCode.INTERNAL_ERROR,
-          `Socket error: ${err.message}`,
-        ),
-      );
-      client.destroy();
-    });
-    client.on("timeout", () => {
-      ctx.logger.debug(`Connection to ${peer} timed out.`);
-      client.destroy();
-      ctx.peerManager.onDialFail(peer);
-      sendMessage(
-        client,
-        new ProtocolError(
-          ErrorCode.INTERNAL_ERROR,
-          `Socket timeout`,
-        ),
-      );
-    });
-    client.on("finish", () => {
-      sendMessage(
-        client,
-        new ProtocolError(
-          ErrorCode.INTERNAL_ERROR,
-          `Socket finished`,
-        ),
-      );
+      ctx.peerManager.registerOutboundConnection(connection);
     });
   }
 }

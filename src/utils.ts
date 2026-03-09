@@ -30,7 +30,22 @@ export function parseHost(str: string) {
   if (!host || !port) {
     return false;
   }
-  const portNum = parseInt(port, 10);
+
+  const hasBracket = host.includes("[") || host.includes("]");
+  const isBracketedHost = host.startsWith("[") && host.endsWith("]");
+  if (hasBracket && !isBracketedHost) {
+    return false;
+  }
+
+  if (!/^\d+$/.test(port)) {
+    return false;
+  }
+
+  const portNum = Number(port);
+  if (!Number.isInteger(portNum) || portNum <= 0 || portNum > 65535) {
+    return false;
+  }
+
   return {
     host,
     port: portNum,
