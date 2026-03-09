@@ -10,6 +10,7 @@ import { parseHost, sendMessage } from "./utils";
 import { parseMessage } from "./messageParser";
 import { messageHandlers } from "./messageHandlers";
 import type { ConnectedPeerContext, PeerContext } from "./types";
+import ProtocolError, { ErrorCode } from "./error";
 
 export function handleConnection(ctx: ConnectedPeerContext) {
   sendMessage(ctx.socket, {
@@ -69,9 +70,32 @@ export function handleInboundConnection(ctx: ConnectedPeerContext) {
     ctx.peerManager.onConnectionClose(ctx.id);
   });
 
-  ctx.socket.on("error", function (err) {
+  ctx.socket.on("error", (err) => {
     ctx.logger.info(`Error: ${err}`);
     ctx.peerManager.onConnectionClose(ctx.id);
+    ctx.socket.write(
+      new ProtocolError(
+        ErrorCode.INTERNAL_ERROR,
+        `Socket produced error: ${err.message}`,
+      ).toMessage(),
+    );
+  });
+  ctx.socket.on("timeout", () => {
+    ctx.socket.write(
+      new ProtocolError(
+        ErrorCode.INTERNAL_ERROR,
+        `Socket timed out`,
+      ).toMessage(),
+    );
+  });
+  ctx.socket.on("finish", () => {
+    ctx.socket.write(
+      new ProtocolError(
+        ErrorCode.INTERNAL_ERROR,
+        `Socket finished`,
+      ).toMessage(),
+    );
+    ctx.socket.end();
   });
 }
 
@@ -127,12 +151,32 @@ export function handleOutboundConnection(ctx: PeerContext) {
         `Failed to connect to bootstrap peer ${peer}: ${err.message}`,
       );
       ctx.peerManager.onDialFail(peer);
+      client.write(
+        new ProtocolError(
+          ErrorCode.INTERNAL_ERROR,
+          `Socket error: ${err.message}`,
+        ).toMessage(),
+      );
       client.destroy();
     });
     client.on("timeout", () => {
       ctx.logger.debug(`Connection to ${peer} timed out.`);
       client.destroy();
       ctx.peerManager.onDialFail(peer);
+      client.write(
+        new ProtocolError(
+          ErrorCode.INTERNAL_ERROR,
+          `Socket timeout`,
+        ).toMessage(),
+      );
+    });
+    client.on("finish", () => {
+      client.write(
+        new ProtocolError(
+          ErrorCode.INTERNAL_ERROR,
+          `Socket finished`,
+        ).toMessage(),
+      );
     });
   }
 }

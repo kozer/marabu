@@ -37,7 +37,6 @@ export function checkHandshake(
     return false;
   }
 
-  // 4. Success! Update the state so future messages pass instantly
   state.hasHandshaked = true;
   return true;
 }
