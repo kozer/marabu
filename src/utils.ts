@@ -2,7 +2,7 @@ import { Socket } from "net";
 import { isIP } from "node:net";
 import canonicalize from "canonicalize";
 import { SEPARATOR } from "./constants";
-import type { TransactionMessage, ValidMessage } from "./types";
+import type { ValidMessage } from "./types";
 
 export function sendMessage(socket: Socket, message: ValidMessage) {
   const messageStr = canonicalize(message) + SEPARATOR;
