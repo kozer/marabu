@@ -74,7 +74,7 @@ async function expectProtocolError(
     throw new Error(`Expected ProtocolError with code ${code}`);
   } catch (error) {
     expect(error).toBeInstanceOf(ProtocolError);
-    expect((error as ProtocolError).code).toBe(code);
+    expect((error as ProtocolError).name).toBe(code);
   }
 }
 
@@ -331,7 +331,7 @@ describe("verifyLawOfConservation", () => {
       throw new Error("Expected INVALID_TX_CONSERVATION");
     } catch (error) {
       expect(error).toBeInstanceOf(ProtocolError);
-      expect((error as ProtocolError).code).toBe(
+      expect((error as ProtocolError).name).toBe(
         ErrorCode.INVALID_TX_CONSERVATION,
       );
     }

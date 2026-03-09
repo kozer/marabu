@@ -73,27 +73,30 @@ export function handleInboundConnection(ctx: ConnectedPeerContext) {
   ctx.socket.on("error", (err) => {
     ctx.logger.info(`Error: ${err}`);
     ctx.peerManager.onConnectionClose(ctx.id);
-    ctx.socket.write(
+    sendMessage(
+      ctx.socket,
       new ProtocolError(
         ErrorCode.INTERNAL_ERROR,
         `Socket produced error: ${err.message}`,
-      ).toMessage(),
+      ),
     );
   });
   ctx.socket.on("timeout", () => {
-    ctx.socket.write(
+    sendMessage(
+      ctx.socket,
       new ProtocolError(
         ErrorCode.INTERNAL_ERROR,
         `Socket timed out`,
-      ).toMessage(),
+      ),
     );
   });
   ctx.socket.on("finish", () => {
-    ctx.socket.write(
+    sendMessage(
+      ctx.socket,
       new ProtocolError(
         ErrorCode.INTERNAL_ERROR,
         `Socket finished`,
-      ).toMessage(),
+      ),
     );
     ctx.socket.end();
   });
@@ -151,11 +154,12 @@ export function handleOutboundConnection(ctx: PeerContext) {
         `Failed to connect to bootstrap peer ${peer}: ${err.message}`,
       );
       ctx.peerManager.onDialFail(peer);
-      client.write(
+      sendMessage(
+        client,
         new ProtocolError(
           ErrorCode.INTERNAL_ERROR,
           `Socket error: ${err.message}`,
-        ).toMessage(),
+        ),
       );
       client.destroy();
     });
@@ -163,19 +167,21 @@ export function handleOutboundConnection(ctx: PeerContext) {
       ctx.logger.debug(`Connection to ${peer} timed out.`);
       client.destroy();
       ctx.peerManager.onDialFail(peer);
-      client.write(
+      sendMessage(
+        client,
         new ProtocolError(
           ErrorCode.INTERNAL_ERROR,
           `Socket timeout`,
-        ).toMessage(),
+        ),
       );
     });
     client.on("finish", () => {
-      client.write(
+      sendMessage(
+        client,
         new ProtocolError(
           ErrorCode.INTERNAL_ERROR,
           `Socket finished`,
-        ).toMessage(),
+        ),
       );
     });
   }

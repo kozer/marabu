@@ -6,6 +6,7 @@ import {
   type ValidMessage,
 } from "./types";
 import { validateMessage } from "./validator";
+import { sendMessage } from "./utils";
 
 export async function parseMessage(
   msg: string,
@@ -17,11 +18,12 @@ export async function parseMessage(
     message = JSON.parse(msg);
   } catch (error) {
     ctx.logger.error(`Error parsing message as JSON:`, message);
-    ctx.socket.write(
+    sendMessage(
+      ctx.socket,
       new ProtocolError(
         ErrorCode.INVALID_FORMAT,
         `Received message that is not valid JSON: ${error}`,
-      ).toMessage(),
+      ),
     );
     ctx.socket.end();
     return null;
@@ -37,25 +39,27 @@ export async function parseMessage(
       );
       if (tree.properties?.type?.errors?.includes("Invalid input")) {
         ctx.logger.error(`Message validation failed: Invalid message type`);
-        ctx.socket.write(
+        sendMessage(
+          ctx.socket,
           new ProtocolError(
             ErrorCode.INVALID_FORMAT,
             `Received message with invalid type`,
-          ).toMessage(),
+          ),
         );
       }
     }
     if (error instanceof ProtocolError) {
-      ctx.logger.error(`Protocol validation failed: ${error.code}`);
-      ctx.socket.write(error.toMessage());
+      ctx.logger.error(`Protocol validation failed: ${error.name}`);
+      sendMessage(ctx.socket, error);
     } else {
       ctx.logger.error({ err: error }, "Unknown protocol message");
 
-      ctx.socket.write(
+      sendMessage(
+        ctx.socket,
         new ProtocolError(
           ErrorCode.INVALID_FORMAT,
           "Received message with invalid format",
-        ).toMessage(),
+        ),
       );
     }
 

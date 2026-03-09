@@ -45,13 +45,13 @@ export enum ErrorCode {
 class ProtocolError extends Error {
   // Hardcoded to "error" so the peer knows this is an error message
   readonly type = MessageType.ERROR;
-  readonly code: ErrorCode;
+  override readonly name: ErrorCode;
   readonly description: string;
 
-  constructor(code: ErrorCode, description: string) {
+  constructor(name: ErrorCode, description: string) {
     super(description);
 
-    this.code = code;
+    this.name = name;
     this.description = description;
 
     if (Error.captureStackTrace) {
@@ -63,7 +63,7 @@ class ProtocolError extends Error {
     return (
       canonicalize({
         type: this.type,
-        name: this.code,
+        name: this.name,
         description: this.description,
       }) + SEPARATOR
     );
