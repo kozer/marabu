@@ -5,6 +5,12 @@ import { SEPARATOR } from "./constants";
 import type { ValidMessage } from "@/protocol/types";
 import ProtocolError from "@/protocol/error";
 
+export type ParsedPeerAddress = {
+  port: number;
+  canonical: string;
+  dialHost: string;
+};
+
 export function sendMessage(
   socket: Socket,
   message: ValidMessage | ProtocolError,
@@ -52,26 +58,34 @@ export function parseHost(str: string) {
   };
 }
 
-export function normalizePeer(peer: string): string {
-  const trimmed = peer.trim();
-  const parsed = parseHost(trimmed);
-  if (!parsed || !Number.isFinite(parsed.port)) {
-    return trimmed;
+export function parsePeerAddress(input: string): ParsedPeerAddress | null {
+  const parsed = parseHost(input);
+  if (!parsed) {
+    return null;
   }
 
-  const rawHost = parsed.host;
-  const isBracketed = rawHost.startsWith("[") && rawHost.endsWith("]");
-  const host = isBracketed ? rawHost.slice(1, -1) : rawHost;
+  const isBracketed =
+    parsed.host.startsWith("[") && parsed.host.endsWith("]");
+  let dialHost = isBracketed ? parsed.host.slice(1, -1) : parsed.host;
 
-  if (host.startsWith("::ffff:")) {
-    const mapped = host.slice(7);
+  if (dialHost.startsWith("::ffff:")) {
+    const mapped = dialHost.slice(7);
     if (isIP(mapped) === 4) {
-      return `${mapped}:${parsed.port}`;
+      dialHost = mapped;
     }
   }
 
-  const formattedHost = isIP(host) === 6 ? `[${host}]` : host;
-  return `${formattedHost}:${parsed.port}`;
+  const canonicalHost = isIP(dialHost) === 6 ? `[${dialHost}]` : dialHost;
+
+  return {
+    port: parsed.port,
+    canonical: `${canonicalHost}:${parsed.port}`,
+    dialHost,
+  };
+}
+
+export function normalizePeer(peer: string): string {
+  return parsePeerAddress(peer)?.canonical ?? peer.trim();
 }
 
 export const delay = (ms: number) =>

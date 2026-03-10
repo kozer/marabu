@@ -4,7 +4,7 @@ import {
   SERVER_HOST,
   SERVER_PORT,
 } from "@/shared/constants";
-import { normalizePeer, parseHost } from "@/shared/utils";
+import { normalizePeer, parsePeerAddress } from "@/shared/utils";
 import type { PeerStore } from "@/peers/peerStore";
 import type { PeerConnection } from "@/net/peerConnection";
 import { ConnectionRegistry } from "@/peers/connectionRegistry";
@@ -26,14 +26,14 @@ export class PeerManager {
     if (
       this.knownPeers.has(normalizedPeer) ||
       this.dialPolicy.isBlacklisted(normalizedPeer) ||
-      !this.isValidPeer(normalizedPeer)
+      !this.isAcceptablePeer(normalizedPeer)
     ) {
       return null;
     }
     return normalizedPeer;
   }
 
-  isValidPeer(peer: string): boolean {
+  isAcceptablePeer(peer: string): boolean {
     if (!peer || !peer.trim()) {
       return false;
     }
@@ -41,37 +41,32 @@ export class PeerManager {
       return false;
     }
 
-    const parsed = parseHost(peer);
+    const parsed = parsePeerAddress(peer);
     if (!parsed) {
       return false;
     }
 
-    let { host, port } = parsed;
+    const { dialHost: host, port } = parsed;
 
     if (isNaN(port) || port <= 0 || port > 65535) return false;
 
-    const normalizedHost =
-      host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
+    const lowercaseHost = host.toLowerCase();
 
-    const lowercaseHost = normalizedHost.toLowerCase();
-
-    const ipType = isIP(normalizedHost); // Returns 0 (DNS), 4 (IPv4), or 6 (IPv6)
+    const ipType = isIP(host); // Returns 0 (DNS), 4 (IPv4), or 6 (IPv6)
     if (
       INVALID_SELF_HOSTS.includes(lowercaseHost) ||
-      (ipType === 4 && ip.cidrSubnet("0.0.0.0/8").contains(lowercaseHost))
+      (ipType === 4 && ip.cidrSubnet("0.0.0.0/8").contains(host))
     ) {
       return false;
     }
 
     if (ipType !== 0) {
       try {
-        if (ip.isLoopback(normalizedHost) || ip.isPrivate(normalizedHost)) {
+        if (ip.isLoopback(host) || ip.isPrivate(host)) {
           return false;
         }
       } catch (e) {
-        this.logger.warn(
-          `Failed to validate IP address ${normalizedHost}: ${e}`,
-        );
+        this.logger.warn(`Failed to validate IP address ${host}: ${e}`);
         return false;
       }
     }
@@ -228,7 +223,7 @@ export class PeerManager {
     return this.getKnownPeers().filter((peer) => {
       if (
         this.connectionRegistry.hasOutbound(peer) ||
-        !this.isValidPeer(peer)
+        !this.isAcceptablePeer(peer)
       ) {
         return false;
       }

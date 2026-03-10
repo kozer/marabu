@@ -1,5 +1,5 @@
-import { expect, test, describe } from "bun:test";
-import { parseHost } from "@/shared/utils";
+import { describe, expect, test } from "bun:test";
+import { normalizePeer, parseHost, parsePeerAddress } from "@/shared/utils";
 
 describe("parseHost", () => {
   test("should parse valid IPv4:port", () => {
@@ -90,5 +90,47 @@ describe("parseHost", () => {
   test("should handle hostname with subdomain and newline", () => {
     const result = parseHost("node1.example.com:8080\n");
     expect(result).toEqual({ host: "node1.example.com", port: 8080 });
+  });
+});
+
+describe("parsePeerAddress", () => {
+  test("returns canonical and dial host for IPv4", () => {
+    const result = parsePeerAddress("192.168.1.1:8080");
+
+    expect(result).toEqual({
+      port: 8080,
+      canonical: "192.168.1.1:8080",
+      dialHost: "192.168.1.1",
+    });
+  });
+
+  test("returns canonical bracketed IPv6 and unbracketed dial host", () => {
+    const result = parsePeerAddress("[::1]:8080");
+
+    expect(result).toEqual({
+      port: 8080,
+      canonical: "[::1]:8080",
+      dialHost: "::1",
+    });
+  });
+
+  test("normalizes IPv4-mapped IPv6", () => {
+    const result = parsePeerAddress("[::ffff:127.0.0.1]:8080");
+
+    expect(result).toEqual({
+      port: 8080,
+      canonical: "127.0.0.1:8080",
+      dialHost: "127.0.0.1",
+    });
+  });
+
+  test("returns null for invalid peer", () => {
+    expect(parsePeerAddress("bad-peer")).toBeNull();
+  });
+});
+
+describe("normalizePeer", () => {
+  test("returns canonical peer address", () => {
+    expect(normalizePeer("[::1]:8080\n")).toBe("[::1]:8080");
   });
 });

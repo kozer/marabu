@@ -1,6 +1,6 @@
 import { Socket } from "net";
 import { MAX_PEERS, OUTBOUND_PEER_LIMIT } from "@/shared/constants";
-import { parseHost } from "@/shared/utils";
+import { parsePeerAddress } from "@/shared/utils";
 import type { ConnectedPeerContext, PeerContext } from "@/protocol/types";
 import { PeerConnection } from "@/net/peerConnection";
 
@@ -39,17 +39,14 @@ export function handleOutboundConnection(ctx: PeerContext) {
   );
 
   for (const peer of peers) {
-    const { host, port } = parseHost(peer) || {};
-    if (!host || !port) {
+    const parsed = parsePeerAddress(peer);
+    if (!parsed) {
       ctx.logger.warn(`Invalid bootstrap peer: ${peer}`);
       continue;
     }
-    //Clean IPV6 host if it's in the format [ipv6]:port
-    const cleanHost =
-      host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
 
     const client = new Socket();
-    const cleanPeer = `${cleanHost}:${port}`;
+    const cleanPeer = parsed.canonical;
 
     client.setTimeout(2000);
 
@@ -59,7 +56,7 @@ export function handleOutboundConnection(ctx: PeerContext) {
       ...ctx,
     };
 
-    client.connect(port, cleanHost, () => {
+    client.connect(parsed.port, parsed.dialHost, () => {
       ctx.logger.info(`Successfully connected to ${cleanPeer}!`);
       client.setTimeout(0);
       ctx.peerManager.registerOutboundConnection(connection);
