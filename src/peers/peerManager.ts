@@ -181,6 +181,10 @@ export class PeerManager {
 
     const lowercaseHost = host.toLowerCase();
     const ipType = isIP(host);
+    if (ipType === 0 && !host.includes(".")) {
+      return false;
+    }
+
     if (
       INVALID_SELF_HOSTS.includes(lowercaseHost) ||
       (ipType === 4 && ip.cidrSubnet("0.0.0.0/8").contains(host))
