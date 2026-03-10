@@ -1,8 +1,8 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import canonicalize from "canonicalize";
 import * as ed from "@noble/ed25519";
-import { MessageType } from "@/shared/constants";
-import ProtocolError, { ErrorCode } from "@/protocol/error";
+import ProtocolError from "@/protocol/error";
+import { MessageType, ErrorCode } from "@/protocol/types";
 import type {
   ConnectedPeerContext,
   InputTransactionMessage,

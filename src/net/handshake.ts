@@ -1,6 +1,6 @@
 import { Socket } from "net";
-import { MessageType } from "@/shared/constants";
-import ProtocolError, { ErrorCode } from "@/protocol/error";
+import { MessageType, ErrorCode } from "@/protocol/types";
+import ProtocolError from "@/protocol/error";
 import { semver } from "bun";
 import { sendMessage } from "@/shared/utils";
 

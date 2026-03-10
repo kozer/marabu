@@ -1,9 +1,10 @@
 import z from "zod";
-import ProtocolError, { ErrorCode } from "@/protocol/error";
+import ProtocolError from "@/protocol/error";
 import {
   MessageSchema,
   type ConnectedPeerContext,
   type ValidMessage,
+  ErrorCode,
 } from "@/protocol/types";
 import { validateMessage } from "@/protocol/validator";
 import { sendMessage } from "@/shared/utils";

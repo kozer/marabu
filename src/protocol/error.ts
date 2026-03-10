@@ -1,46 +1,6 @@
 import canonicalize from "canonicalize";
-import { MessageType, SEPARATOR } from "@/shared/constants";
-
-/**
- * Protocol Error Codes for Node-to-Node Communication
- */
-export enum ErrorCode {
-  // An error occurred within the node while processing the message.
-  INTERNAL_ERROR = "INTERNAL_ERROR",
-
-  // The format of the received message is invalid.
-  INVALID_FORMAT = "INVALID_FORMAT",
-
-  // The object requested is unknown to that specific node.
-  UNKNOWN_OBJECT = "UNKNOWN_OBJECT",
-
-  // The object requested could not be found in the node's network.
-  UNFINDABLE_OBJECT = "UNFINDABLE_OBJECT",
-
-  // The peer sent other validly formatted messages before sending a valid hello message.
-  INVALID_HANDSHAKE = "INVALID_HANDSHAKE",
-
-  // The transaction outpoint index is too large.
-  INVALID_TX_OUTPOINT = "INVALID_TX_OUTPOINT",
-
-  // The transaction signature is invalid.
-  INVALID_TX_SIGNATURE = "INVALID_TX_SIGNATURE",
-
-  // The transaction does not satisfy the weak law of conservation.
-  INVALID_TX_CONSERVATION = "INVALID_TX_CONSERVATION",
-
-  // The block coinbase transaction is invalid.
-  INVALID_BLOCK_COINBASE = "INVALID_BLOCK_COINBASE",
-
-  // The block timestamp is invalid.
-  INVALID_BLOCK_TIMESTAMP = "INVALID_BLOCK_TIMESTAMP",
-
-  // The block proof-of-work is invalid.
-  INVALID_BLOCK_POW = "INVALID_BLOCK_POW",
-
-  // The block has a previd of null but it isn't genesis.
-  INVALID_GENESIS = "INVALID_GENESIS",
-}
+import { SEPARATOR } from "@/shared/constants";
+import { ErrorCode, MessageType } from "@/protocol/types";
 
 class ProtocolError extends Error {
   // Hardcoded to "error" so the peer knows this is an error message

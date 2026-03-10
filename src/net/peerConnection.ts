@@ -1,13 +1,14 @@
-import {
-  DNS_BLACKLIST_TTL_MS,
-  MessageType,
-  SEPARATOR,
-} from "@/shared/constants";
-import ProtocolError, { ErrorCode } from "@/protocol/error";
+import { DNS_BLACKLIST_TTL_MS, SEPARATOR } from "@/shared/constants";
+import ProtocolError from "@/protocol/error";
 import { checkHandshake, type ConnectionState } from "@/net/handshake";
 import { messageHandlers } from "@/net/messageHandlers";
 import { parseMessage } from "@/net/messageParser";
-import type { ConnectedPeerContext, ValidMessage } from "@/protocol/types";
+import {
+  MessageType,
+  ErrorCode,
+  type ConnectedPeerContext,
+  type ValidMessage,
+} from "@/protocol/types";
 import { sendMessage } from "@/shared/utils";
 
 export class PeerConnection {

@@ -1,4 +1,4 @@
-import { MessageType } from "@/shared/constants";
+import { MessageType } from "@/protocol/types";
 import type {
   ValidMessage,
   HelloMessage,

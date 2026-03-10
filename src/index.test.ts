@@ -10,9 +10,9 @@ import { createServer, Socket } from "net";
 import { handleInboundConnection } from "@/net/connection";
 import { PeerManager } from "@/peers/peerManager";
 import { sendMessage, delay } from "@/shared/utils";
-import { MessageType, SEPARATOR } from "@/shared/constants";
+import { SEPARATOR } from "@/shared/constants";
 import { MemoryPeerStore } from "@/peers/peerStore";
-import { ErrorCode } from "@/protocol/error";
+import { MessageType, ErrorCode } from "@/protocol/types";
 
 // Simple mock logger for tests to avoid pino-pretty keeping process alive
 const logger = {
