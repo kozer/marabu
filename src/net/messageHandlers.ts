@@ -141,7 +141,6 @@ export const messageHandlers: Record<
   [MessageType.GET_CHAIN_TIP]: getChainTipHandler as unknown as GenericHandler,
   [MessageType.GET_MEMPOOL]: getMempoolHandler as unknown as GenericHandler,
   [MessageType.MEMPOOL]: memPoolHandler as unknown as GenericHandler,
-  [MessageType.TRANSACTION]: transactionHandler as unknown as GenericHandler,
   [MessageType.IHAVEOBJECT]: iHaveObjectHandler as unknown as GenericHandler,
   [MessageType.GET_OBJECT]: getObjectHandler as unknown as GenericHandler,
   [MessageType.OBJECT]: objectHandler as unknown as GenericHandler,

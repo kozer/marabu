@@ -12,10 +12,14 @@ export enum MessageType {
   GET_CHAIN_TIP = "getchaintip",
   GET_MEMPOOL = "getmempool",
   MEMPOOL = "mempool",
-  TRANSACTION = "transaction",
   IHAVEOBJECT = "ihaveobject",
   OBJECT = "object",
   GET_OBJECT = "getobject",
+}
+
+export enum ObjectType {
+  TRANSACTION = "transaction",
+  BLOCK = "block",
 }
 
 /**
@@ -114,10 +118,25 @@ export const GetChainTipMessageSchema = z.object({
 });
 
 export const TransactionSchema = z.object({
-  type: z.literal(MessageType.TRANSACTION),
+  type: z.literal(ObjectType.TRANSACTION),
   height: z.number().int().nonnegative().optional(),
   inputs: z.array(InputTransactionSchema).optional(),
   outputs: z.array(OutputTransactionSchema),
+});
+
+// Make block schema a loose object for now, as we don't care for Pset2.
+export const BlockSchema = z.looseObject({
+  type: z.literal(ObjectType.BLOCK),
+});
+
+export const ObjectDataSchema = z.discriminatedUnion("type", [
+  TransactionSchema,
+  BlockSchema,
+]);
+
+export const ObjectMessageSchema = z.object({
+  type: z.literal(MessageType.OBJECT),
+  object: ObjectDataSchema,
 });
 
 export const MessageSchema = z.discriminatedUnion("type", [
@@ -129,7 +148,7 @@ export const MessageSchema = z.discriminatedUnion("type", [
   GetChainTipMessageSchema,
   GetMempoolMessageSchema,
   MempoolMessageSchema,
-  TransactionSchema,
+  ObjectMessageSchema,
 ]);
 
 export type ValidMessage = z.infer<typeof MessageSchema>;
@@ -142,6 +161,7 @@ export type GetChainTipMessage = z.infer<typeof GetChainTipMessageSchema>;
 export type GetMempoolMessage = z.infer<typeof GetMempoolMessageSchema>;
 export type MempoolMessage = z.infer<typeof MempoolMessageSchema>;
 export type TransactionMessage = z.infer<typeof TransactionSchema>;
+export type ObjectMessage = z.infer<typeof ObjectMessageSchema>;
 export type OutputTransactionMessage = z.infer<typeof OutputTransactionSchema>;
 export type InputTransactionMessage = z.infer<typeof InputTransactionSchema>;
 export type ResolvedInput = z.infer<typeof InputTransactionSchema> & {

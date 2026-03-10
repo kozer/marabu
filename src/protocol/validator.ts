@@ -10,6 +10,7 @@ import type {
   ResolvedInput,
   TransactionMessage,
   ValidMessage,
+  ObjectMessage,
 } from "@/protocol/types";
 import { parseHost } from "@/shared/utils";
 
@@ -203,6 +204,17 @@ export async function validateTransaction(
   return true;
 }
 
+export async function validateObject(
+  message: ObjectMessage,
+  ctx: ConnectedPeerContext,
+): Promise<boolean> {
+  if (message.object.type === ObjectType.BLOCK) {
+    return true;
+  }
+  //We don't need to check for other types, as zod covers that.
+  return validateTransaction(message.object, ctx);
+}
+
 type GenericValidator = (
   message: ValidMessage,
   ctx: ConnectedPeerContext,
@@ -215,7 +227,7 @@ export const validatorHandlers: Partial<
   >
 > = {
   [MessageType.PEERS]: validatePeers as unknown as GenericValidator,
-  [MessageType.TRANSACTION]: validateTransaction as unknown as GenericValidator,
+  [MessageType.OBJECT]: validateObject as unknown as GenericValidator,
 };
 
 export const validateMessage = async (
