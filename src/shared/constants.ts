@@ -17,3 +17,11 @@ export const OUTBOUND_PEER_LIMIT = 200;
 
 export const DEFAULT_DB_PATH = "./marabudb";
 export const DNS_BLACKLIST_TTL_MS = 60 * 60 * 1000;
+
+export const MAX_PEERS_FROM_MESSAGE = 32;
+export const MAX_PEERS_PER_SOURCE = 64;
+export const STALE_PEER_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+export const STALE_FAILED_PEER_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
+export const STALE_FAILED_PEER_FAILURE_THRESHOLD = 3;
+export const INVALID_MESSAGE_THRESHOLD = 10;
+export const INVALID_MESSAGE_BLACKLIST_BASE_TTL_MS = 60 * 1000;

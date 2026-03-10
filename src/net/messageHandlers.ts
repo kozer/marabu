@@ -15,7 +15,6 @@ import type {
   ObjectMessage,
 } from "@/protocol/types";
 import { sendMessage } from "@/shared/utils";
-import ObjectMapper from "@/storage/objectMapper";
 
 export const helloHandler = async (message: HelloMessage) => {
   console.log(
@@ -49,7 +48,7 @@ export const peersHandler = async (
       newPeers.push(normalizedPeer);
     }
   }
-  await ctx.peerManager.addKnownPeers(newPeers);
+  await ctx.peerManager.addKnownPeers(newPeers, ctx.id);
 };
 
 export const errorHandler = async (

@@ -37,6 +37,10 @@ export class ConnectionRegistry {
     return this.outboundConnections.has(id);
   }
 
+  hasConnection(id: string): boolean {
+    return this.inboundConnections.has(id) || this.outboundConnections.has(id);
+  }
+
   get inboundCount(): number {
     return this.inboundConnections.size;
   }

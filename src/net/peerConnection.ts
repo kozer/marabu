@@ -1,4 +1,4 @@
-import { DNS_BLACKLIST_TTL_MS, SEPARATOR } from "@/shared/constants";
+import { SEPARATOR } from "@/shared/constants";
 import ProtocolError from "@/protocol/error";
 import { checkHandshake, type ConnectionState } from "@/net/handshake";
 import { messageHandlers } from "@/net/messageHandlers";
@@ -14,7 +14,6 @@ import { sendMessage } from "@/shared/utils";
 export class PeerConnection {
   private buffer = "";
   private readonly state: ConnectionState = { hasHandshaked: false };
-  private initialMessagesSent = false;
 
   constructor(private readonly ctx: ConnectedPeerContext) {
     this.attachSocketHandlers();
@@ -49,46 +48,31 @@ export class PeerConnection {
 
     this.ctx.socket.on("error", (err) => {
       this.ctx.logger.info(`Error: ${err}`);
-      this.ctx.peerManager.unregisterConnection(this.id);
-      this.ctx.peerManager.onDialFail(this.id);
-      if (
-        err.message.includes("ENOTFOUND") ||
-        err.message.includes("EAI_AGAIN")
-      ) {
-        this.ctx.peerManager.blacklistPeer(
-          this.id,
-          DNS_BLACKLIST_TTL_MS,
-          err.message,
-        );
-        return;
+      if (this.ctx.peerManager.hasOutboundConnection(this.id)) {
+        this.ctx.peerManager.onDialFail(this.id);
       }
-      this.send(
-        new ProtocolError(
-          ErrorCode.INTERNAL_ERROR,
-          `Socket produced error: ${err.message}`,
-        ),
+      this.ctx.peerManager.unregisterConnection(this.id);
+      this.ctx.logger.debug(
+        `Socket produced error for ${this.id}: ${err.message}`,
       );
     });
 
     this.ctx.socket.on("timeout", () => {
-      this.ctx.peerManager.onDialFail(this.id);
-      this.send(
-        new ProtocolError(ErrorCode.INTERNAL_ERROR, `Socket timed out`),
-      );
+      this.ctx.logger.debug(`Socket timed out for ${this.id}`);
+      if (this.ctx.peerManager.hasOutboundConnection(this.id)) {
+        this.ctx.peerManager.onDialFail(this.id);
+      }
+      this.ctx.peerManager.unregisterConnection(this.id);
+      this.ctx.socket.destroy();
     });
 
     this.ctx.socket.on("finish", () => {
       this.ctx.peerManager.unregisterConnection(this.id);
-      this.send(new ProtocolError(ErrorCode.INTERNAL_ERROR, `Socket finished`));
-      this.ctx.socket.end();
+      this.ctx.logger.debug(`Socket finished for ${this.id}`);
     });
   }
 
   private sendInitialMessages(): void {
-    if (this.initialMessagesSent) {
-      return;
-    }
-    this.initialMessagesSent = true;
     this.send({
       type: MessageType.HELLO,
       version: "0.10.0",

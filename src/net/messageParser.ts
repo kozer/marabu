@@ -19,6 +19,10 @@ export async function parseMessage(
     message = JSON.parse(msg);
   } catch (error) {
     ctx.logger.error(`Error parsing message as JSON:`, message);
+    ctx.peerManager.reportInvalidPeer(
+      ctx.id,
+      `Invalid JSON message: ${(error as Error).message}`,
+    );
     sendMessage(
       ctx.socket,
       new ProtocolError(
@@ -51,9 +55,11 @@ export async function parseMessage(
     }
     if (error instanceof ProtocolError) {
       ctx.logger.error(`Protocol validation failed: ${error.name}`);
+      ctx.peerManager.reportInvalidPeer(ctx.id, error.name);
       sendMessage(ctx.socket, error);
     } else {
       ctx.logger.error({ err: error }, "Unknown protocol message");
+      ctx.peerManager.reportInvalidPeer(ctx.id, "UNKNOWN_PROTOCOL_MESSAGE");
 
       sendMessage(
         ctx.socket,
