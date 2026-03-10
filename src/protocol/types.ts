@@ -117,6 +117,16 @@ export const GetChainTipMessageSchema = z.object({
   type: z.literal(MessageType.GET_CHAIN_TIP),
 });
 
+export const GetOjbectMessageSchema = z.object({
+  type: z.literal(MessageType.GET_OBJECT),
+  objectid: z.hex().length(64),
+});
+
+export const IHaveObjectMessageSchema = z.object({
+  type: z.literal(MessageType.IHAVEOBJECT),
+  objectid: z.hex().length(64),
+});
+
 export const TransactionSchema = z.object({
   type: z.literal(ObjectType.TRANSACTION),
   height: z.number().int().nonnegative().optional(),
@@ -162,6 +172,8 @@ export type GetMempoolMessage = z.infer<typeof GetMempoolMessageSchema>;
 export type MempoolMessage = z.infer<typeof MempoolMessageSchema>;
 export type TransactionMessage = z.infer<typeof TransactionSchema>;
 export type ObjectMessage = z.infer<typeof ObjectMessageSchema>;
+export type IHaveObjectMessage = z.infer<typeof IHaveObjectMessageSchema>;
+export type GetObjectMessage = z.infer<typeof GetOjbectMessageSchema>;
 export type OutputTransactionMessage = z.infer<typeof OutputTransactionSchema>;
 export type InputTransactionMessage = z.infer<typeof InputTransactionSchema>;
 export type ResolvedInput = z.infer<typeof InputTransactionSchema> & {

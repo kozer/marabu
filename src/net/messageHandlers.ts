@@ -10,6 +10,9 @@ import type {
   GetMempoolMessage,
   MempoolMessage,
   ConnectedPeerContext,
+  IHaveObjectMessage,
+  GetObjectMessage,
+  ObjectMessage,
 } from "@/protocol/types";
 import { sendMessage } from "@/shared/utils";
 
@@ -88,17 +91,8 @@ export const getChainTipHandler = async (
   );
 };
 
-export const transactionHandler = async (
-  _message: ValidMessage,
-  ctx: ConnectedPeerContext,
-) => {
-  ctx.logger.info(
-    `Received transaction message from ${ctx.id}, but transaction handling is not implemented yet.`,
-  );
-};
-
 export const iHaveObjectHandler = async (
-  _message: ValidMessage,
+  _message: IHaveObjectMessage,
   ctx: ConnectedPeerContext,
 ) => {
   ctx.logger.info(
@@ -107,7 +101,7 @@ export const iHaveObjectHandler = async (
 };
 
 export const getObjectHandler = async (
-  _message: ValidMessage,
+  _message: GetObjectMessage,
   ctx: ConnectedPeerContext,
 ) => {
   ctx.logger.info(
@@ -116,7 +110,7 @@ export const getObjectHandler = async (
 };
 
 export const objectHandler = async (
-  _message: ValidMessage,
+  _message: ObjectMessage,
   ctx: ConnectedPeerContext,
 ) => {
   ctx.logger.info(
