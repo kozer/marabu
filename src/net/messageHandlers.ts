@@ -15,6 +15,7 @@ import type {
   ObjectMessage,
 } from "@/protocol/types";
 import { sendMessage } from "@/shared/utils";
+import ObjectMapper from "@/storage/objectMapper";
 
 export const helloHandler = async (message: HelloMessage) => {
   console.log(
@@ -93,29 +94,24 @@ export const getChainTipHandler = async (
 
 export const iHaveObjectHandler = async (
   _message: IHaveObjectMessage,
-  ctx: ConnectedPeerContext,
+  _ctx: ConnectedPeerContext,
 ) => {
-  ctx.logger.info(
-    `Received IHAVEOBJECT message from ${ctx.id}, but object handling is not implemented yet.`,
-  );
+  //TODO: Implement
 };
 
 export const getObjectHandler = async (
   _message: GetObjectMessage,
-  ctx: ConnectedPeerContext,
+  _ctx: ConnectedPeerContext,
 ) => {
-  ctx.logger.info(
-    `Received GETOBJECT message from ${ctx.id}, but object handling is not implemented yet.`,
-  );
+  //TODO: Implement
 };
 
 export const objectHandler = async (
   _message: ObjectMessage,
-  ctx: ConnectedPeerContext,
+  _ctx: ConnectedPeerContext,
 ) => {
-  ctx.logger.info(
-    `Received OBJECT message from ${ctx.id}, but object handling is not implemented yet.`,
-  );
+  //By now the objec we received is valid
+  // TODO: Implement
 };
 
 type GenericHandler = (

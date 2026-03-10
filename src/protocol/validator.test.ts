@@ -2,10 +2,11 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import canonicalize from "canonicalize";
 import * as ed from "@noble/ed25519";
 import ProtocolError from "@/protocol/error";
-import { MessageType, ErrorCode } from "@/protocol/types";
+import { ErrorCode, MessageType, ObjectType } from "@/protocol/types";
 import type {
   ConnectedPeerContext,
   InputTransactionMessage,
+  ObjectMessage,
   OutputTransactionMessage,
   TransactionMessage,
 } from "./types";
@@ -27,15 +28,27 @@ const logger = {
   warn: (..._args: any[]) => {},
 };
 
-function createContext(objects: Record<string, unknown>): ConnectedPeerContext {
+function wrapObject(object: TransactionMessage): ObjectMessage {
+  return {
+    type: MessageType.OBJECT,
+    object,
+  } as ObjectMessage;
+}
+
+function getTransactionObject(message: ObjectMessage): TransactionMessage {
+  return message.object as TransactionMessage;
+}
+
+function createContext(
+  objects: Record<string, ObjectMessage>,
+): ConnectedPeerContext {
   return {
     id: "peer-1",
     socket: {} as any,
     peerManager: {} as any,
     logger,
     db: {
-      addObject: async () => {},
-      validateObject: async () => true,
+      putObject: async () => {},
       getObject: async (key: string) => objects[key] ?? null,
     },
   };
@@ -80,18 +93,18 @@ async function expectProtocolError(
 
 let senderPrivateKey: Uint8Array;
 let senderPubkeyHex: string;
-let previousTx: TransactionMessage;
+let previousTxObject: ObjectMessage;
 
 beforeAll(async () => {
   senderPrivateKey = new Uint8Array(Buffer.from("01".repeat(32), "hex"));
   const senderPubkey = await ed.getPublicKeyAsync(senderPrivateKey);
   senderPubkeyHex = toHex(senderPubkey);
 
-  previousTx = {
-    type: MessageType.TRANSACTION,
+  previousTxObject = wrapObject({
+    type: ObjectType.TRANSACTION,
     height: 0,
     outputs: [{ pubkey: senderPubkeyHex, value: 50 }],
-  };
+  });
 });
 
 describe("validateHost", () => {
@@ -146,7 +159,7 @@ describe("validateHost", () => {
 
 describe("validateOutpoints", () => {
   test("resolves known outpoints", async () => {
-    const ctx = createContext({ [PREV_TX_ID]: previousTx });
+    const ctx = createContext({ [PREV_TX_ID]: previousTxObject });
     const inputs: InputTransactionMessage[] = [
       {
         outpoint: { txid: PREV_TX_ID, index: 0 },
@@ -157,7 +170,9 @@ describe("validateOutpoints", () => {
     const resolved = await validateOutpoints(inputs, ctx);
 
     expect(resolved).toHaveLength(1);
-    expect(resolved[0]?.resolvedOutput).toEqual(previousTx.outputs[0]);
+    expect(resolved[0]?.resolvedOutput).toEqual(
+      getTransactionObject(previousTxObject).outputs[0],
+    );
   });
 
   test("throws UNKNOWN_OBJECT when outpoint tx is missing", async () => {
@@ -176,7 +191,7 @@ describe("validateOutpoints", () => {
   });
 
   test("throws INVALID_TX_OUTPOINT when index is too large", async () => {
-    const ctx = createContext({ [PREV_TX_ID]: previousTx });
+    const ctx = createContext({ [PREV_TX_ID]: previousTxObject });
     const inputs: InputTransactionMessage[] = [
       {
         outpoint: { txid: PREV_TX_ID, index: 1 },
@@ -193,13 +208,12 @@ describe("validateOutpoints", () => {
   test("fetches each unique txid only once", async () => {
     let getObjectCalls = 0;
     const ctx = {
-      ...createContext({ [PREV_TX_ID]: previousTx }),
+      ...createContext({ [PREV_TX_ID]: previousTxObject }),
       db: {
-        addObject: async () => {},
-        validateObject: async () => true,
+        putObject: async () => {},
         getObject: async (key: string) => {
           getObjectCalls += 1;
-          return key === PREV_TX_ID ? previousTx : null;
+          return key === PREV_TX_ID ? previousTxObject : null;
         },
       },
     } as ConnectedPeerContext;
@@ -223,7 +237,7 @@ describe("validateOutpoints", () => {
 describe("verifySignatures", () => {
   test("accepts a valid signature", async () => {
     const tx: TransactionMessage = {
-      type: MessageType.TRANSACTION,
+      type: ObjectType.TRANSACTION,
       inputs: [
         {
           outpoint: { txid: PREV_TX_ID, index: 0 },
@@ -239,7 +253,7 @@ describe("verifySignatures", () => {
     const resolvedInputs = [
       {
         ...tx.inputs![0]!,
-        resolvedOutput: previousTx.outputs[0]!,
+        resolvedOutput: getTransactionObject(previousTxObject).outputs[0]!,
       },
     ];
 
@@ -248,7 +262,7 @@ describe("verifySignatures", () => {
 
   test("throws INVALID_TX_SIGNATURE when signature is null", async () => {
     const tx: TransactionMessage = {
-      type: MessageType.TRANSACTION,
+      type: ObjectType.TRANSACTION,
       inputs: [
         {
           outpoint: { txid: PREV_TX_ID, index: 0 },
@@ -261,7 +275,7 @@ describe("verifySignatures", () => {
     const resolvedInputs = [
       {
         ...tx.inputs![0]!,
-        resolvedOutput: previousTx.outputs[0]!,
+        resolvedOutput: getTransactionObject(previousTxObject).outputs[0]!,
       },
     ];
 
@@ -273,7 +287,7 @@ describe("verifySignatures", () => {
 
   test("throws INVALID_TX_SIGNATURE for invalid signatures", async () => {
     const tx: TransactionMessage = {
-      type: MessageType.TRANSACTION,
+      type: ObjectType.TRANSACTION,
       inputs: [
         {
           outpoint: { txid: PREV_TX_ID, index: 0 },
@@ -286,7 +300,7 @@ describe("verifySignatures", () => {
     const resolvedInputs = [
       {
         ...tx.inputs![0]!,
-        resolvedOutput: previousTx.outputs[0]!,
+        resolvedOutput: getTransactionObject(previousTxObject).outputs[0]!,
       },
     ];
 
@@ -342,7 +356,7 @@ describe("validateTransaction", () => {
   test("accepts coinbase transactions", async () => {
     const ctx = createContext({});
     const coinbase: TransactionMessage = {
-      type: MessageType.TRANSACTION,
+      type: ObjectType.TRANSACTION,
       height: 0,
       outputs: [{ pubkey: senderPubkeyHex, value: 50 }],
     };
@@ -353,7 +367,7 @@ describe("validateTransaction", () => {
   test("throws INVALID_FORMAT for non-coinbase transactions without inputs", async () => {
     const ctx = createContext({});
     const malformedTx = {
-      type: MessageType.TRANSACTION,
+      type: ObjectType.TRANSACTION,
       outputs: [{ pubkey: senderPubkeyHex, value: 50 }],
     } as TransactionMessage;
 
@@ -364,9 +378,9 @@ describe("validateTransaction", () => {
   });
 
   test("accepts a valid signed non-coinbase transaction", async () => {
-    const ctx = createContext({ [PREV_TX_ID]: previousTx });
+    const ctx = createContext({ [PREV_TX_ID]: previousTxObject });
     const tx: TransactionMessage = {
-      type: MessageType.TRANSACTION,
+      type: ObjectType.TRANSACTION,
       inputs: [
         {
           outpoint: { txid: PREV_TX_ID, index: 0 },

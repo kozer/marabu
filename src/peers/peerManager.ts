@@ -11,6 +11,7 @@ import { ConnectionRegistry } from "@/peers/connectionRegistry";
 import { DialPolicy } from "@/peers/dialPolicy";
 import ip from "ip";
 import { isIP } from "node:net";
+import type { ValidMessage } from "@/protocol/types";
 
 export class PeerManager {
   private knownPeers: Set<string>;
@@ -234,5 +235,14 @@ export class PeerManager {
 
       return this.dialPolicy.canDial(peer);
     });
+  }
+  broadcast(msg: ValidMessage, excludePeerId?: string): void {
+    const peersToSend = excludePeerId
+      ? this.getConnectedPeersExcept(excludePeerId)
+      : this.getConnectedPeers();
+
+    for (const peer of peersToSend) {
+      peer.send(msg);
+    }
   }
 }

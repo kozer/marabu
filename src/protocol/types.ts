@@ -159,6 +159,8 @@ export const MessageSchema = z.discriminatedUnion("type", [
   GetMempoolMessageSchema,
   MempoolMessageSchema,
   ObjectMessageSchema,
+  IHaveObjectMessageSchema,
+  GetOjbectMessageSchema,
 ]);
 
 export type ValidMessage = z.infer<typeof MessageSchema>;

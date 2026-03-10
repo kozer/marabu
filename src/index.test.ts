@@ -23,11 +23,8 @@ const logger = {
 };
 
 const db = {
-  async addObject(_key: string, _value: any): Promise<void> {
+  async putObject(_key: string, _value: any): Promise<void> {
     return;
-  },
-  async validateObject(_key: string, _value: any): Promise<boolean> {
-    return true;
   },
   async getObject(_key: string): Promise<any> {
     return null;

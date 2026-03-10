@@ -1,6 +1,6 @@
 import canonicalize from "canonicalize";
 import * as ed from "@noble/ed25519";
-import { MessageType, ErrorCode } from "@/protocol/types";
+import { MessageType, ErrorCode, ObjectType } from "@/protocol/types";
 import ProtocolError from "@/protocol/error";
 import type {
   ConnectedPeerContext,
@@ -48,10 +48,10 @@ export async function validateOutpoints(
     uniqueInputTxIds.map((txid) => ctx.db.getObject(txid)),
   );
   const txCache = uniqueInputTxIds.reduce((txMap, txid, index) => {
-    const foundTx = fetchedTxs[index];
+    const foundObj = fetchedTxs[index];
 
-    if (foundTx) {
-      txMap.set(txid, foundTx);
+    if (foundObj && foundObj.object.type === ObjectType.TRANSACTION) {
+      txMap.set(txid, foundObj.object);
     }
 
     return txMap;

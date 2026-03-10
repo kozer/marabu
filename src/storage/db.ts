@@ -1,11 +1,11 @@
 import level from "level";
 import { DEFAULT_DB_PATH } from "@/shared/constants";
 import canonicalize from "canonicalize";
+import type { ObjectMessage } from "@/protocol/types";
 
 export interface DatabaseInterface {
-  addObject(key: string, value: any): Promise<void>;
-  validateObject(key: string, value: any): Promise<boolean>;
-  getObject(key: string): Promise<any>;
+  putObject(key: string, value: ObjectMessage): Promise<void>;
+  getObject(key: string): Promise<ObjectMessage | null>;
 }
 
 class LevelDatabase implements DatabaseInterface {
@@ -15,7 +15,7 @@ class LevelDatabase implements DatabaseInterface {
     this.db = level(path || DEFAULT_DB_PATH);
   }
 
-  async addObject(key: string, value: any): Promise<void> {
+  async putObject(key: string, value: ObjectMessage): Promise<void> {
     const serialized = canonicalize(value);
     if (!serialized) {
       throw new Error("Failed to canonicalize object for storage");
@@ -24,20 +24,11 @@ class LevelDatabase implements DatabaseInterface {
     await this.db.put(key, serialized);
   }
 
-  async validateObject(key: string, value: any): Promise<boolean> {
-    try {
-      const storedValue = await this.db.get(key);
-      if (!storedValue) return false;
-      return storedValue === canonicalize(value);
-    } catch (error) {
-      return false;
-    }
-  }
-
-  async getObject(key: string): Promise<any> {
+  async getObject(key: string): Promise<ObjectMessage | null> {
     try {
       const storedValue = await this.db.get(key);
       if (!storedValue) return null;
+      //This is already a canonicalized string, so we can parse it directly
       return JSON.parse(storedValue);
     } catch (error) {
       return null;
