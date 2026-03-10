@@ -13,6 +13,9 @@ export enum MessageType {
   GET_MEMPOOL = "getmempool",
   MEMPOOL = "mempool",
   TRANSACTION = "transaction",
+  IHAVEOBJECT = "ihaveobject",
+  OBJECT = "object",
+  GET_OBJECT = "getobject",
 }
 
 /**

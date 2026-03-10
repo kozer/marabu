@@ -97,6 +97,33 @@ export const transactionHandler = async (
   );
 };
 
+export const iHaveObjectHandler = async (
+  _message: ValidMessage,
+  ctx: ConnectedPeerContext,
+) => {
+  ctx.logger.info(
+    `Received IHAVEOBJECT message from ${ctx.id}, but object handling is not implemented yet.`,
+  );
+};
+
+export const getObjectHandler = async (
+  _message: ValidMessage,
+  ctx: ConnectedPeerContext,
+) => {
+  ctx.logger.info(
+    `Received GETOBJECT message from ${ctx.id}, but object handling is not implemented yet.`,
+  );
+};
+
+export const objectHandler = async (
+  _message: ValidMessage,
+  ctx: ConnectedPeerContext,
+) => {
+  ctx.logger.info(
+    `Received OBJECT message from ${ctx.id}, but object handling is not implemented yet.`,
+  );
+};
+
 type GenericHandler = (
   message: ValidMessage,
   ctx: ConnectedPeerContext,
@@ -115,4 +142,7 @@ export const messageHandlers: Record<
   [MessageType.GET_MEMPOOL]: getMempoolHandler as unknown as GenericHandler,
   [MessageType.MEMPOOL]: memPoolHandler as unknown as GenericHandler,
   [MessageType.TRANSACTION]: transactionHandler as unknown as GenericHandler,
+  [MessageType.IHAVEOBJECT]: iHaveObjectHandler as unknown as GenericHandler,
+  [MessageType.GET_OBJECT]: getObjectHandler as unknown as GenericHandler,
+  [MessageType.OBJECT]: objectHandler as unknown as GenericHandler,
 };
