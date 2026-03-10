@@ -1,5 +1,5 @@
 import canonicalize from "canonicalize";
-import { MessageType, SEPARATOR } from "./constants";
+import { MessageType, SEPARATOR } from "@/shared/constants";
 
 /**
  * Protocol Error Codes for Node-to-Node Communication

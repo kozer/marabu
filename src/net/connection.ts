@@ -1,8 +1,8 @@
 import { Socket } from "net";
-import { MAX_PEERS, OUTBOUND_PEER_LIMIT } from "./constants";
-import { parseHost } from "./utils";
-import type { ConnectedPeerContext, PeerContext } from "./types";
-import { PeerConnection } from "./peerConnection";
+import { MAX_PEERS, OUTBOUND_PEER_LIMIT } from "@/shared/constants";
+import { parseHost } from "@/shared/utils";
+import type { ConnectedPeerContext, PeerContext } from "@/protocol/types";
+import { PeerConnection } from "@/net/peerConnection";
 
 export function handleInboundConnection(ctx: ConnectedPeerContext) {
   if (!ctx.peerManager.canAcceptInbound()) {

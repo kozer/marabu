@@ -1,9 +1,9 @@
 import z from "zod";
-import { MessageType } from "./constants";
-import { ErrorCode } from "./error";
+import { MessageType } from "@/shared/constants";
+import { ErrorCode } from "@/protocol/error";
 import { Socket } from "net";
-import type { PeerManager } from "./peerManager";
-import type { DatabaseInterface } from "./db";
+import type { PeerManager } from "@/peers/peerManager";
+import type { DatabaseInterface } from "@/storage/db";
 
 export const HelloMessageSchema = z.object({
   type: z.literal(MessageType.HELLO),

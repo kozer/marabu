@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import ObjectMapper from "./objectMapper";
+import ObjectMapper from "@/storage/objectMapper";
 
 const GENESIS_BLOCK = {
   T: "00000000abc00000000000000000000000000000000000000000000000000000",

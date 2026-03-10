@@ -1,12 +1,12 @@
 import z from "zod";
-import ProtocolError, { ErrorCode } from "./error";
+import ProtocolError, { ErrorCode } from "@/protocol/error";
 import {
   MessageSchema,
   type ConnectedPeerContext,
   type ValidMessage,
-} from "./types";
-import { validateMessage } from "./validator";
-import { sendMessage } from "./utils";
+} from "@/protocol/types";
+import { validateMessage } from "@/protocol/validator";
+import { sendMessage } from "@/shared/utils";
 
 export async function parseMessage(
   msg: string,

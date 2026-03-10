@@ -2,8 +2,8 @@ import { Socket } from "net";
 import { isIP } from "node:net";
 import canonicalize from "canonicalize";
 import { SEPARATOR } from "./constants";
-import type { ValidMessage } from "./types";
-import ProtocolError from "./error";
+import type { ValidMessage } from "@/protocol/types";
+import ProtocolError from "@/protocol/error";
 
 export function sendMessage(
   socket: Socket,

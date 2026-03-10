@@ -3,12 +3,12 @@ import {
   INVALID_SELF_HOSTS,
   SERVER_HOST,
   SERVER_PORT,
-} from "./constants";
-import { normalizePeer, parseHost } from "./utils";
-import type { PeerStore } from "./peerStore";
-import type { PeerConnection } from "./peerConnection";
-import { ConnectionRegistry } from "./connectionRegistry";
-import { DialPolicy } from "./dialPolicy";
+} from "@/shared/constants";
+import { normalizePeer, parseHost } from "@/shared/utils";
+import type { PeerStore } from "@/peers/peerStore";
+import type { PeerConnection } from "@/net/peerConnection";
+import { ConnectionRegistry } from "@/peers/connectionRegistry";
+import { DialPolicy } from "@/peers/dialPolicy";
 import ip from "ip";
 import { isIP } from "node:net";
 

@@ -1,4 +1,4 @@
-import { MessageType } from "./constants";
+import { MessageType } from "@/shared/constants";
 import type {
   ValidMessage,
   HelloMessage,
@@ -10,8 +10,8 @@ import type {
   GetMempoolMessage,
   MempoolMessage,
   ConnectedPeerContext,
-} from "./types";
-import { sendMessage } from "./utils";
+} from "@/protocol/types";
+import { sendMessage } from "@/shared/utils";
 
 export const helloHandler = async (message: HelloMessage) => {
   console.log(

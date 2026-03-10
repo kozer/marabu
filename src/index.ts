@@ -1,13 +1,13 @@
 import { createServer, Socket } from "net";
-import logger from "./logger";
-import { SERVER_PORT, PEERS_FILE } from "./constants";
+import logger from "@/shared/logger";
+import { SERVER_PORT, PEERS_FILE } from "@/shared/constants";
 import {
   handleInboundConnection,
   handleOutboundConnection,
-} from "./connection";
-import { PeerManager } from "./peerManager";
-import { FilePeerStore } from "./peerStore";
-import LevelDatabase from "./db";
+} from "@/net/connection";
+import { PeerManager } from "@/peers/peerManager";
+import { FilePeerStore } from "@/peers/peerStore";
+import LevelDatabase from "@/storage/db";
 
 async function startNode() {
   const peerManager = new PeerManager(new FilePeerStore(PEERS_FILE), logger);

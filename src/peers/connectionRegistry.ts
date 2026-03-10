@@ -1,5 +1,5 @@
-import { MAX_PEERS, OUTBOUND_PEER_LIMIT } from "./constants";
-import type { PeerConnection } from "./peerConnection";
+import { MAX_PEERS, OUTBOUND_PEER_LIMIT } from "@/shared/constants";
+import type { PeerConnection } from "@/net/peerConnection";
 
 export class ConnectionRegistry {
   private inboundConnections = new Map<string, PeerConnection>();

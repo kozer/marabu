@@ -1,5 +1,5 @@
 import { expect, test, describe } from "bun:test";
-import { parseHost } from "./utils";
+import { parseHost } from "@/shared/utils";
 
 describe("parseHost", () => {
   test("should parse valid IPv4:port", () => {

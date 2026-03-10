@@ -1,4 +1,5 @@
 import canonicalize from "canonicalize";
+// Blake2 cannot be used due to compatibility issues with bun.
 import { createHash } from "node:crypto";
 
 class ObjectMapper {

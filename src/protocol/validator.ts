@@ -1,7 +1,7 @@
 import canonicalize from "canonicalize";
 import * as ed from "@noble/ed25519";
-import { MessageType } from "./constants";
-import ProtocolError, { ErrorCode } from "./error";
+import { MessageType } from "@/shared/constants";
+import ProtocolError, { ErrorCode } from "@/protocol/error";
 import type {
   ConnectedPeerContext,
   InputTransactionMessage,
@@ -10,8 +10,8 @@ import type {
   ResolvedInput,
   TransactionMessage,
   ValidMessage,
-} from "./types";
-import { parseHost } from "./utils";
+} from "@/protocol/types";
+import { parseHost } from "@/shared/utils";
 
 export function validateHost(host: string): boolean {
   const { port } = parseHost(host) || {};

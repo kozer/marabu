@@ -7,12 +7,12 @@ import {
   beforeEach,
 } from "bun:test";
 import { createServer, Socket } from "net";
-import { handleInboundConnection } from "./connection";
-import { PeerManager } from "./peerManager";
-import { sendMessage, delay } from "./utils";
-import { MessageType, SEPARATOR } from "./constants";
-import { MemoryPeerStore } from "./peerStore";
-import { ErrorCode } from "./error";
+import { handleInboundConnection } from "@/net/connection";
+import { PeerManager } from "@/peers/peerManager";
+import { sendMessage, delay } from "@/shared/utils";
+import { MessageType, SEPARATOR } from "@/shared/constants";
+import { MemoryPeerStore } from "@/peers/peerStore";
+import { ErrorCode } from "@/protocol/error";
 
 // Simple mock logger for tests to avoid pino-pretty keeping process alive
 const logger = {

@@ -1,8 +1,8 @@
 import { Socket } from "net";
-import { MessageType } from "./constants";
-import ProtocolError, { ErrorCode } from "./error";
+import { MessageType } from "@/shared/constants";
+import ProtocolError, { ErrorCode } from "@/protocol/error";
 import { semver } from "bun";
-import { sendMessage } from "./utils";
+import { sendMessage } from "@/shared/utils";
 
 export interface ConnectionState {
   hasHandshaked: boolean;

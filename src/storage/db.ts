@@ -1,5 +1,5 @@
 import level from "level";
-import { DEFAULT_DB_PATH } from "./constants";
+import { DEFAULT_DB_PATH } from "@/shared/constants";
 import canonicalize from "canonicalize";
 
 export interface DatabaseInterface {
