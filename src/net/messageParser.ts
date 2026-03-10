@@ -19,7 +19,7 @@ export async function parseMessage(
     message = JSON.parse(msg);
   } catch (error) {
     ctx.logger.error(`Error parsing message as JSON:`, message);
-    ctx.peerManager.reportInvalidPeer(
+    await ctx.peerManager.reportInvalidPeer(
       ctx.id,
       `Invalid JSON message: ${(error as Error).message}`,
     );

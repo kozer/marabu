@@ -31,6 +31,7 @@ type PeerRecord = {
 
 export class PeerManager {
   private knownPeers: Map<string, PeerRecord>;
+  private persistedBlacklistedPeers: Set<string>;
   private readonly store: PeerStore;
   private readonly myNode = `${SERVER_HOST}:${SERVER_PORT}`;
   private readonly logger: any;
@@ -111,7 +112,7 @@ export class PeerManager {
     return peerAge >= STALE_PEER_MAX_AGE_MS;
   }
 
-  pruneStalePeers(now = Date.now()): number {
+  async pruneStalePeers(now = Date.now()): Promise<number> {
     let removed = 0;
 
     for (const [peer, record] of this.knownPeers.entries()) {
@@ -126,7 +127,7 @@ export class PeerManager {
 
     if (removed > 0) {
       this.logger.info(`Pruned ${removed} stale peer(s) from address book.`);
-      void this.save();
+      await this.save();
     }
 
     return removed;
@@ -209,6 +210,7 @@ export class PeerManager {
   constructor(store: PeerStore, logger: any) {
     this.store = store;
     this.knownPeers = new Map();
+    this.persistedBlacklistedPeers = new Set();
     this.logger = logger;
     this.connectionRegistry = new ConnectionRegistry(logger);
   }
@@ -246,7 +248,7 @@ export class PeerManager {
       this.getOrCreatePeerRecord(normalizedPeer, sourcePeerId);
     }
     if (newPeers.length > 0) {
-      this.pruneStalePeers();
+      await this.pruneStalePeers();
       this.logger.info(
         `Added ${newPeers.length} new peer(s): ${newPeers.join(", ")}`,
       );
@@ -256,8 +258,10 @@ export class PeerManager {
 
   async load(): Promise<string[]> {
     try {
-      const storedPeers = await this.store.load();
+      const storedState = await this.store.load();
+      const storedPeers = storedState.peers;
       this.logger.info(`My node address: ${this.myNode}`);
+      this.persistedBlacklistedPeers = new Set(storedState.blacklistedPeers);
 
       if (storedPeers.length === 0) {
         this.knownPeers = new Map(
@@ -266,7 +270,9 @@ export class PeerManager {
         await this.save();
       } else {
         this.knownPeers = new Map(
-          storedPeers.map((peer) => [peer, this.createPeerRecord()]),
+          storedPeers
+            .filter((peer) => !this.persistedBlacklistedPeers.has(peer))
+            .map((peer) => [peer, this.createPeerRecord()]),
         );
       }
 
@@ -275,6 +281,7 @@ export class PeerManager {
       return this.getKnownPeers();
     } catch (err) {
       this.logger.error(err, "Failed to load peers from storage");
+      this.persistedBlacklistedPeers = new Set();
       this.knownPeers = new Map(
         BOOTSTRAP_PEERS.map((peer) => [peer, this.createPeerRecord()]),
       );
@@ -285,7 +292,10 @@ export class PeerManager {
   async save(): Promise<void> {
     try {
       const peersToPersist = this.getKnownPeers();
-      await this.store.save(peersToPersist);
+      await this.store.save({
+        peers: peersToPersist,
+        blacklistedPeers: [...this.persistedBlacklistedPeers],
+      });
       this.logger.info(`Saved ${peersToPersist.length} peers to storage.`);
     } catch (err) {
       this.logger.error(err, "Failed to save peers to storage");
@@ -313,23 +323,25 @@ export class PeerManager {
     this.connectionRegistry.unregister(id);
   }
 
-  onDialFail(peer: string): void {
+  async onDialFail(peer: string): Promise<void> {
     const record = this.getOrCreatePeerRecord(peer);
     record.failureCount += 1;
     record.lastFailureAt = Date.now();
-    this.pruneStalePeers();
+    await this.pruneStalePeers();
   }
 
   blacklistPeer(peer: string, ttlMs: number, reason: string): void {
     const record = this.getOrCreatePeerRecord(peer);
     record.blacklistedUntil = Date.now() + ttlMs;
+    this.persistedBlacklistedPeers.add(peer);
     this.logger.warn(
       `Blacklisted peer ${peer} for ${ttlMs}ms. Reason: ${reason}`,
     );
     this.connectionRegistry.unregister(peer);
+    void this.save();
   }
 
-  reportInvalidPeer(peer: string, reason: string): void {
+  async reportInvalidPeer(peer: string, reason: string): Promise<void> {
     const record = this.getOrCreatePeerRecord(peer);
     record.invalidMessageCount += 1;
     this.logger.warn(
@@ -343,7 +355,7 @@ export class PeerManager {
       this.blacklistPeer(peer, ttlMs, reason);
     }
 
-    this.pruneStalePeers();
+    await this.pruneStalePeers();
   }
 
   get inboundConnectionCount(): number {

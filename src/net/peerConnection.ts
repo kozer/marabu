@@ -46,10 +46,10 @@ export class PeerConnection {
       this.ctx.peerManager.unregisterConnection(this.id);
     });
 
-    this.ctx.socket.on("error", (err) => {
+    this.ctx.socket.on("error", async (err) => {
       this.ctx.logger.info(`Error: ${err}`);
       if (this.ctx.peerManager.hasOutboundConnection(this.id)) {
-        this.ctx.peerManager.onDialFail(this.id);
+        await this.ctx.peerManager.onDialFail(this.id);
       }
       this.ctx.peerManager.unregisterConnection(this.id);
       this.ctx.logger.debug(
@@ -57,10 +57,10 @@ export class PeerConnection {
       );
     });
 
-    this.ctx.socket.on("timeout", () => {
+    this.ctx.socket.on("timeout", async () => {
       this.ctx.logger.debug(`Socket timed out for ${this.id}`);
       if (this.ctx.peerManager.hasOutboundConnection(this.id)) {
-        this.ctx.peerManager.onDialFail(this.id);
+        await this.ctx.peerManager.onDialFail(this.id);
       }
       this.ctx.peerManager.unregisterConnection(this.id);
       this.ctx.socket.destroy();
