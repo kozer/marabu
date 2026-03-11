@@ -220,7 +220,9 @@ export class PeerManager {
   }
 
   getPeersForAdvertisement(): string[] {
-    const peers = this.getKnownPeers();
+    const peers = this.getKnownPeers().filter((peer) =>
+      this.isAcceptablePeer(peer),
+    );
     if (!peers.includes(this.myNode)) {
       peers.unshift(this.myNode);
     }
@@ -272,6 +274,8 @@ export class PeerManager {
         this.knownPeers = new Map(
           storedPeers
             .filter((peer) => !this.persistedBlacklistedPeers.has(peer))
+            .map((peer) => normalizePeer(peer))
+            .filter((peer) => this.isAcceptablePeer(peer))
             .map((peer) => [peer, this.createPeerRecord()]),
         );
       }
