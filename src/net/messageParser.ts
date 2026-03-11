@@ -55,11 +55,14 @@ export async function parseMessage(
     }
     if (error instanceof ProtocolError) {
       ctx.logger.error(`Protocol validation failed: ${error.name}`);
-      ctx.peerManager.reportInvalidPeer(ctx.id, error.name);
+      await ctx.peerManager.reportInvalidPeer(ctx.id, error.name);
       sendMessage(ctx.socket, error);
     } else {
       ctx.logger.error({ err: error }, "Unknown protocol message");
-      ctx.peerManager.reportInvalidPeer(ctx.id, "UNKNOWN_PROTOCOL_MESSAGE");
+      await ctx.peerManager.reportInvalidPeer(
+        ctx.id,
+        "UNKNOWN_PROTOCOL_MESSAGE",
+      );
 
       sendMessage(
         ctx.socket,

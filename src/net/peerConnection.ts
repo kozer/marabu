@@ -1,4 +1,4 @@
-import { DNS_BLACKLIST_TTL_MS, SEPARATOR } from "@/shared/constants";
+import { SEPARATOR } from "@/shared/constants";
 import ProtocolError from "@/protocol/error";
 import { checkHandshake, type ConnectionState } from "@/net/handshake";
 import { messageHandlers } from "@/net/messageHandlers";
@@ -6,6 +6,7 @@ import { parseMessage } from "@/net/messageParser";
 import {
   MessageType,
   ErrorCode,
+  ConnectionDirection,
   type ConnectedPeerContext,
   type ValidMessage,
 } from "@/protocol/types";
@@ -17,12 +18,9 @@ export class PeerConnection {
 
   constructor(
     private readonly ctx: ConnectedPeerContext,
-    private readonly direction: "inbound" | "outbound",
+    private readonly direction: ConnectionDirection,
   ) {
-    if (this.direction === "outbound") {
-      ctx.peerManager.registerOutboundConnection(this);
-    }
-    if (this.direction === "inbound") {
+    if (this.direction === ConnectionDirection.INBOUND) {
       ctx.peerManager.registerInboundConnection(this);
     }
     this.attachSocketHandlers();
@@ -40,11 +38,26 @@ export class PeerConnection {
     sendMessage(this.ctx.socket, message);
   }
 
+  private isOutboundDialInProgress(): boolean {
+    return (
+      this.direction === ConnectionDirection.OUTBOUND &&
+      !this.ctx.peerManager.hasOutboundConnection(this.id)
+    );
+  }
+
+  private onConnect(): void {
+    if (this.isOutboundDialInProgress()) {
+      this.ctx.peerManager.registerOutboundConnection(this);
+    }
+
+    this.sendInitialMessages();
+  }
+
   private attachSocketHandlers(): void {
     if (this.ctx.socket.readyState === "open") {
-      this.sendInitialMessages();
+      this.onConnect();
     } else {
-      this.ctx.socket.on("connect", () => this.sendInitialMessages());
+      this.ctx.socket.on("connect", () => this.onConnect());
     }
     this.ctx.socket.on("data", (data) => {
       void this.handleData(data.toString());
@@ -56,7 +69,7 @@ export class PeerConnection {
     });
 
     this.ctx.socket.on("error", async (err) => {
-      if (this.ctx.peerManager.hasOutboundConnection(this.id)) {
+      if (this.isOutboundDialInProgress()) {
         await this.ctx.peerManager.onDialFail(this.id);
 
         if (
@@ -64,17 +77,13 @@ export class PeerConnection {
           err.message.includes("EAI_AGAIN")
         ) {
           this.ctx.logger.warn(
-            `DNS resolution failed for ${this.id}: ${err.message}. Blacklisting for ${DNS_BLACKLIST_TTL_MS / 1000} seconds.`,
-          );
-          this.ctx.peerManager.blacklistPeer(
-            this.id,
-            DNS_BLACKLIST_TTL_MS,
-            err.message,
+            `DNS resolution failed for ${this.id}: ${err.message}. Waiting for dial backoff before retrying.`,
           );
           this.ctx.socket.destroy();
           return;
         }
       }
+
       this.ctx.peerManager.unregisterConnection(this.id);
       this.ctx.logger.debug(
         `Socket produced error for ${this.id}: ${err.message}`,
@@ -83,8 +92,8 @@ export class PeerConnection {
     });
 
     this.ctx.socket.on("timeout", async () => {
-      if (this.ctx.peerManager.hasOutboundConnection(this.id)) {
-        void this.ctx.peerManager.onDialFail(this.id);
+      if (this.isOutboundDialInProgress()) {
+        await this.ctx.peerManager.onDialFail(this.id);
         this.ctx.socket.destroy();
         return;
       }

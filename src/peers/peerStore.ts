@@ -1,6 +1,6 @@
 export interface PeerStore {
-  load(): Promise<{ peers: string[]; blacklistedPeers: string[] }>;
-  save(state: { peers: string[]; blacklistedPeers: string[] }): Promise<void>;
+  load(): Promise<{ peers: string[] }>;
+  save(state: { peers: string[] }): Promise<void>;
 }
 
 export class FilePeerStore implements PeerStore {
@@ -10,56 +10,41 @@ export class FilePeerStore implements PeerStore {
     this.file = Bun.file(filePath);
   }
 
-  async load(): Promise<{ peers: string[]; blacklistedPeers: string[] }> {
+  async load(): Promise<{ peers: string[] }> {
     try {
       if (await this.file.exists()) {
         const data = await this.file.json();
         return {
           peers: data.peers || [],
-          blacklistedPeers: data.blacklistedPeers || [],
         };
       }
     } catch (_) {}
-    return { peers: [], blacklistedPeers: [] };
+    return { peers: [] };
   }
 
-  async save(state: {
-    peers: string[];
-    blacklistedPeers: string[];
-  }): Promise<void> {
+  async save(state: { peers: string[] }): Promise<void> {
     await Bun.write(this.file, JSON.stringify(state, null, 2));
   }
 }
 
 export class MemoryPeerStore implements PeerStore {
   private peers: string[] = [];
-  private blacklistedPeers: string[] = [];
 
-  async load(): Promise<{ peers: string[]; blacklistedPeers: string[] }> {
+  async load(): Promise<{ peers: string[] }> {
     return {
       peers: [...this.peers],
-      blacklistedPeers: [...this.blacklistedPeers],
     };
   }
 
-  async save(state: {
-    peers: string[];
-    blacklistedPeers: string[];
-  }): Promise<void> {
+  async save(state: { peers: string[] }): Promise<void> {
     this.peers = [...state.peers];
-    this.blacklistedPeers = [...state.blacklistedPeers];
   }
 
   reset(): void {
     this.peers = [];
-    this.blacklistedPeers = [];
   }
 
   getPeers(): string[] {
     return [...this.peers];
-  }
-
-  getBlacklistedPeers(): string[] {
-    return [...this.blacklistedPeers];
   }
 }

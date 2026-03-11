@@ -42,8 +42,8 @@ describe("PeerManager", () => {
     await peerManager.onDialFail(stalePeer);
     await peerManager.onDialFail(stalePeer);
 
-    const fourDaysMs = 4 * 24 * 60 * 60 * 1000;
-    const pruned = await peerManager.pruneStalePeers(Date.now() + fourDaysMs);
+    const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
+    const pruned = await peerManager.pruneStalePeers(Date.now() + threeDaysMs);
 
     expect(pruned).toBeGreaterThanOrEqual(1);
     expect(peerManager.getKnownPeers()).not.toContain(stalePeer);
@@ -69,16 +69,64 @@ describe("PeerManager", () => {
     expect(peerManager.getKnownPeers()).toContain(healthyPeer);
   });
 
-  test("persists blacklisted peers and ignores them on load", async () => {
+  test("does not persist temporary peer penalties across reload", async () => {
     const badPeer = "198.51.100.99:18018";
-    await peerManager.addKnownPeers([badPeer], "198.51.100.10:18018");
+    const flakyPeer = "198.51.100.100:18018";
+    await peerManager.addKnownPeers(
+      [badPeer, flakyPeer],
+      "198.51.100.10:18018",
+    );
 
-    peerManager.blacklistPeer(badPeer, 60_000, "bad data");
+    for (let i = 0; i < 10; i += 1) {
+      await peerManager.reportInvalidPeer(badPeer, "bad data");
+    }
+
+    for (let i = 0; i < 6; i += 1) {
+      await peerManager.onDialFail(flakyPeer);
+    }
+
+    expect(peerManager.getOutboundCandidates()).not.toContain(flakyPeer);
 
     const reloadedPeerManager = new PeerManager(store, logger);
     await reloadedPeerManager.load();
 
-    expect(store.getBlacklistedPeers()).toContain(badPeer);
-    expect(reloadedPeerManager.getKnownPeers()).not.toContain(badPeer);
+    expect(store.getPeers()).toEqual(expect.arrayContaining([badPeer, flakyPeer]));
+    expect(reloadedPeerManager.getKnownPeers()).toContain(flakyPeer);
+    expect(reloadedPeerManager.getKnownPeers()).toContain(badPeer);
+  });
+
+  test("successful outbound connection clears dial backoff without clearing blacklist", async () => {
+    const peer = "198.51.100.101:18018";
+    await peerManager.addKnownPeers([peer], "198.51.100.10:18018");
+
+    await peerManager.onDialFail(peer);
+    expect(peerManager.getOutboundCandidates()).not.toContain(peer);
+
+    peerManager.registerOutboundConnection({
+      id: peer,
+      send: () => {},
+    } as any);
+    peerManager.unregisterConnection(peer);
+
+    expect(peerManager.getOutboundCandidates()).toContain(peer);
+
+    for (let i = 0; i < 10; i += 1) {
+      await peerManager.reportInvalidPeer(peer, "bad data");
+    }
+    peerManager.registerOutboundConnection({
+      id: peer,
+      send: () => {},
+    } as any);
+    peerManager.unregisterConnection(peer);
+
+    expect(peerManager.getOutboundCandidates()).not.toContain(peer);
+  });
+
+  test("does not create peer records for unknown invalid clients", async () => {
+    const unknownPeer = "198.51.100.200:54321";
+
+    await peerManager.reportInvalidPeer(unknownPeer, "bad data");
+
+    expect(peerManager.getKnownPeers()).not.toContain(unknownPeer);
   });
 });

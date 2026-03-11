@@ -191,3 +191,8 @@ export type ConnectedPeerContext = PeerContext & {
   socket: Socket;
   id: string;
 };
+
+export enum ConnectionDirection {
+  INBOUND = "inbound",
+  OUTBOUND = "outbound",
+}

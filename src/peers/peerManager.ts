@@ -1,17 +1,13 @@
 import {
   BOOTSTRAP_PEERS,
-  DIAL_FAILURE_BLACKLIST_BASE_TTL_MS,
-  DIAL_FAILURE_BLACKLIST_THRESHOLD,
-  INVALID_MESSAGE_BLACKLIST_BASE_TTL_MS,
+  INVALID_MESSAGE_BLACKLIST_TTL,
   INVALID_MESSAGE_THRESHOLD,
   INVALID_SELF_HOSTS,
   MAX_PEERS_FROM_MESSAGE,
   MAX_PEERS_PER_SOURCE,
   SERVER_HOST,
   SERVER_PORT,
-  STALE_FAILED_PEER_FAILURE_THRESHOLD,
-  STALE_FAILED_PEER_MAX_AGE_MS,
-  STALE_PEER_MAX_AGE_MS,
+  STALE_PEER_MAX_AGE_TTL,
 } from "@/shared/constants";
 import { normalizePeer, parsePeerAddress } from "@/shared/utils";
 import type { PeerStore } from "@/peers/peerStore";
@@ -28,28 +24,21 @@ type PeerRecord = {
   invalidMessageCount: number;
   lastFailureAt?: number;
   lastSuccessAt?: number;
-  blacklistedUntil?: number;
+  blacklistedExpiresAt?: number;
 };
 
 export class PeerManager {
   private knownPeers: Map<string, PeerRecord>;
-  private persistedBlacklistedPeers: Set<string>;
   private readonly store: PeerStore;
   private readonly myNode = `${SERVER_HOST}:${SERVER_PORT}`;
   private readonly logger: any;
   private readonly connectionRegistry: ConnectionRegistry;
 
-  private createPeerRecord(sourcePeerId?: string): PeerRecord {
-    return {
-      discoveredAt: Date.now(),
-      introducedBy: sourcePeerId ? new Set([sourcePeerId]) : new Set(),
-      failureCount: 0,
-      invalidMessageCount: 0,
-    };
-  }
-
-  private getPeerRecord(peer: string): PeerRecord | undefined {
-    return this.knownPeers.get(peer);
+  constructor(store: PeerStore, logger: any) {
+    this.store = store;
+    this.knownPeers = new Map();
+    this.logger = logger;
+    this.connectionRegistry = new ConnectionRegistry(logger);
   }
 
   private getOrCreatePeerRecord(
@@ -64,19 +53,24 @@ export class PeerManager {
       return existing;
     }
 
-    const created = this.createPeerRecord(sourcePeerId);
+    const created: PeerRecord = {
+      discoveredAt: Date.now(),
+      introducedBy: sourcePeerId ? new Set([sourcePeerId]) : new Set(),
+      failureCount: 0,
+      invalidMessageCount: 0,
+    };
     this.knownPeers.set(peer, created);
     return created;
   }
 
   private isBlacklisted(peer: string, now = Date.now()): boolean {
-    const record = this.getPeerRecord(peer);
-    if (!record?.blacklistedUntil) {
+    const record = this.knownPeers.get(peer);
+    if (!record?.blacklistedExpiresAt) {
       return false;
     }
 
-    if (record.blacklistedUntil <= now) {
-      delete record.blacklistedUntil;
+    if (record.blacklistedExpiresAt <= now) {
+      delete record.blacklistedExpiresAt;
       return false;
     }
 
@@ -101,21 +95,11 @@ export class PeerManager {
     if (record.lastSuccessAt) {
       return false;
     }
-
-    const peerAge = now - record.discoveredAt;
-    if (
-      record.failureCount >= STALE_FAILED_PEER_FAILURE_THRESHOLD &&
-      record.lastFailureAt !== undefined &&
-      now - record.lastFailureAt >= STALE_FAILED_PEER_MAX_AGE_MS
-    ) {
-      return true;
-    }
-
-    return peerAge >= STALE_PEER_MAX_AGE_MS;
+    return now - record.discoveredAt >= STALE_PEER_MAX_AGE_TTL;
   }
 
   async pruneStalePeers(now = Date.now()): Promise<number> {
-    let removed = 0;
+    let peersToRemove = 0;
 
     for (const [peer, record] of this.knownPeers.entries()) {
       if (!this.shouldPrunePeer(record, now)) {
@@ -124,19 +108,20 @@ export class PeerManager {
 
       this.knownPeers.delete(peer);
       this.connectionRegistry.unregister(peer);
-      removed += 1;
+      peersToRemove += 1;
     }
 
-    if (removed > 0) {
-      this.logger.info(`Pruned ${removed} stale peer(s) from address book.`);
-      await this.save();
+    if (peersToRemove > 0) {
+      this.logger.info(
+        `Pruned ${peersToRemove} stale peer(s) from address book.`,
+      );
     }
 
-    return removed;
+    return peersToRemove;
   }
 
   private canDial(peer: string, now = Date.now()): boolean {
-    const record = this.getPeerRecord(peer);
+    const record = this.knownPeers.get(peer);
     if (!record) {
       return true;
     }
@@ -208,15 +193,6 @@ export class PeerManager {
 
     return true;
   }
-
-  constructor(store: PeerStore, logger: any) {
-    this.store = store;
-    this.knownPeers = new Map();
-    this.persistedBlacklistedPeers = new Set();
-    this.logger = logger;
-    this.connectionRegistry = new ConnectionRegistry(logger);
-  }
-
   getKnownPeers(): string[] {
     return [...this.knownPeers.keys()];
   }
@@ -264,22 +240,21 @@ export class PeerManager {
     try {
       const storedState = await this.store.load();
       const storedPeers = storedState.peers;
+      const peersToLoad =
+        storedPeers.length === 0 ? BOOTSTRAP_PEERS : storedPeers;
       this.logger.info(`My node address: ${this.myNode}`);
-      this.persistedBlacklistedPeers = new Set(storedState.blacklistedPeers);
+
+      for (const peer of peersToLoad) {
+        const normalizedPeer = normalizePeer(peer);
+        if (!this.isAcceptablePeer(normalizedPeer)) {
+          continue;
+        }
+
+        this.getOrCreatePeerRecord(normalizedPeer);
+      }
 
       if (storedPeers.length === 0) {
-        this.knownPeers = new Map(
-          BOOTSTRAP_PEERS.map((peer) => [peer, this.createPeerRecord()]),
-        );
         await this.save();
-      } else {
-        this.knownPeers = new Map(
-          storedPeers
-            .filter((peer) => !this.persistedBlacklistedPeers.has(peer))
-            .map((peer) => normalizePeer(peer))
-            .filter((peer) => this.isAcceptablePeer(peer))
-            .map((peer) => [peer, this.createPeerRecord()]),
-        );
       }
 
       this.logger.info(`Loaded ${this.knownPeers.size} peers from storage.`);
@@ -287,10 +262,14 @@ export class PeerManager {
       return this.getKnownPeers();
     } catch (err) {
       this.logger.error(err, "Failed to load peers from storage");
-      this.persistedBlacklistedPeers = new Set();
-      this.knownPeers = new Map(
-        BOOTSTRAP_PEERS.map((peer) => [peer, this.createPeerRecord()]),
-      );
+      for (const peer of BOOTSTRAP_PEERS) {
+        const normalizedPeer = normalizePeer(peer);
+        if (!this.isAcceptablePeer(normalizedPeer)) {
+          continue;
+        }
+
+        this.getOrCreatePeerRecord(normalizedPeer);
+      }
       return this.getKnownPeers();
     }
   }
@@ -300,7 +279,6 @@ export class PeerManager {
       const peersToPersist = this.getKnownPeers();
       await this.store.save({
         peers: peersToPersist,
-        blacklistedPeers: [...this.persistedBlacklistedPeers],
       });
       this.logger.info(`Saved ${peersToPersist.length} peers to storage.`);
     } catch (err) {
@@ -317,7 +295,6 @@ export class PeerManager {
     const record = this.getOrCreatePeerRecord(connection.id);
     record.failureCount = 0;
     record.lastSuccessAt = Date.now();
-    delete record.blacklistedUntil;
 
     this.connectionRegistry.registerOutbound(connection);
     this.logger.info(
@@ -334,31 +311,20 @@ export class PeerManager {
     record.failureCount += 1;
     record.lastFailureAt = Date.now();
 
-    if (
-      record.failureCount >= DIAL_FAILURE_BLACKLIST_THRESHOLD &&
-      !record.lastSuccessAt
-    ) {
-      const ttlMs =
-        Math.pow(2, record.failureCount) * DIAL_FAILURE_BLACKLIST_BASE_TTL_MS;
-      this.blacklistPeer(peer, ttlMs, "Repeated dial failures");
+    const removedPeers = await this.pruneStalePeers();
+    if (removedPeers > 0) {
+      await this.save();
     }
-
-    await this.pruneStalePeers();
-  }
-
-  blacklistPeer(peer: string, ttlMs: number, reason: string): void {
-    const record = this.getOrCreatePeerRecord(peer);
-    record.blacklistedUntil = Date.now() + ttlMs;
-    this.persistedBlacklistedPeers.add(peer);
-    this.logger.warn(
-      `Blacklisted peer ${peer} for ${ttlMs}ms. Reason: ${reason}`,
-    );
-    this.connectionRegistry.unregister(peer);
-    void this.save();
   }
 
   async reportInvalidPeer(peer: string, reason: string): Promise<void> {
-    const record = this.getOrCreatePeerRecord(peer);
+    const record = this.knownPeers.get(peer);
+    if (!record) {
+      this.logger.warn(`Unknown peer ${peer} sent invalid data: ${reason}`);
+      return;
+    }
+
+    let shouldSave = false;
     record.invalidMessageCount += 1;
     this.logger.warn(
       `Peer ${peer} sent invalid data (${record.invalidMessageCount}): ${reason}`,
@@ -366,12 +332,21 @@ export class PeerManager {
 
     if (record.invalidMessageCount >= INVALID_MESSAGE_THRESHOLD) {
       const ttlMs =
-        Math.pow(2, record.invalidMessageCount) *
-        INVALID_MESSAGE_BLACKLIST_BASE_TTL_MS;
-      this.blacklistPeer(peer, ttlMs, reason);
+        Math.pow(2, record.invalidMessageCount) * INVALID_MESSAGE_BLACKLIST_TTL;
+      record.blacklistedExpiresAt = Date.now() + ttlMs;
+      this.logger.warn(
+        `Blacklisted peer ${peer} for ${ttlMs}ms. Reason: ${reason}`,
+      );
+      this.connectionRegistry.unregister(peer);
+      shouldSave = true;
     }
 
-    await this.pruneStalePeers();
+    const removedPeers = await this.pruneStalePeers();
+    shouldSave = shouldSave || removedPeers > 0;
+
+    if (shouldSave) {
+      await this.save();
+    }
   }
 
   get inboundConnectionCount(): number {
@@ -394,12 +369,10 @@ export class PeerManager {
     return this.connectionRegistry.totalCount;
   }
 
-  getConnectedPeers(): PeerConnection[] {
-    return this.connectionRegistry.getConnectedPeers();
-  }
-
-  getConnectedPeersExcept(peerId: string): PeerConnection[] {
-    return this.connectionRegistry.getConnectedPeersExcept(peerId);
+  getConnectedPeers(peerId?: string): PeerConnection[] {
+    return peerId
+      ? this.connectionRegistry.getConnectedPeersExcept(peerId)
+      : this.connectionRegistry.getConnectedPeers();
   }
 
   hasOutboundConnection(peerId: string): boolean {
@@ -408,10 +381,7 @@ export class PeerManager {
 
   getOutboundCandidates(): string[] {
     return this.getKnownPeers().filter((peer) => {
-      if (
-        this.connectionRegistry.hasOutbound(peer) ||
-        !this.isAcceptablePeer(peer)
-      ) {
+      if (this.hasOutboundConnection(peer) || !this.isAcceptablePeer(peer)) {
         return false;
       }
 
@@ -420,9 +390,7 @@ export class PeerManager {
   }
 
   broadcast(msg: ValidMessage, excludePeerId?: string): void {
-    const peersToSend = excludePeerId
-      ? this.getConnectedPeersExcept(excludePeerId)
-      : this.getConnectedPeers();
+    const peersToSend = this.getConnectedPeers(excludePeerId);
 
     for (const peer of peersToSend) {
       peer.send(msg);
