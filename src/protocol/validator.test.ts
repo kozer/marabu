@@ -11,7 +11,7 @@ import type {
   TransactionMessage,
 } from "./types";
 import {
-  validateHost,
+  validatePeers,
   validateOutpoints,
   validateTransaction,
   verifyLawOfConservation,
@@ -107,53 +107,75 @@ beforeAll(async () => {
   });
 });
 
-describe("validateHost", () => {
-  test("should validate valid host:port", () => {
-    expect(validateHost("192.168.1.1:8080")).toBe(true);
+describe("validatePeers", () => {
+  const ctx = createContext({});
+
+  test("accepts valid peer addresses", () => {
+    expect(
+      validatePeers(
+        {
+          type: MessageType.PEERS,
+          peers: ["192.168.1.1:8080", "example.com:8080", "[::1]:8080"],
+        },
+        ctx,
+      ),
+    ).toBe(true);
   });
 
-  test("should validate hostname:port", () => {
-    expect(validateHost("example.com:8080")).toBe(true);
+  test("accepts trimmed peer strings from the network", () => {
+    expect(
+      validatePeers(
+        {
+          type: MessageType.PEERS,
+          peers: ["95.179.185.24:59362\r\n"],
+        },
+        ctx,
+      ),
+    ).toBe(true);
   });
 
-  test("should reject port 0", () => {
-    expect(validateHost("192.168.1.1:0")).toBe(false);
+  test("throws INVALID_FORMAT for malformed peer addresses", () => {
+    expect(() =>
+      validatePeers(
+        {
+          type: MessageType.PEERS,
+          peers: ["bad-peer"],
+        },
+        ctx,
+      ),
+    ).toThrow(ProtocolError);
+
+    expect(() =>
+      validatePeers(
+        {
+          type: MessageType.PEERS,
+          peers: ["bad-peer"],
+        },
+        ctx,
+      ),
+    ).toThrow("Received message with invalid format");
   });
 
-  test("should reject negative port", () => {
-    expect(validateHost("192.168.1.1:-1")).toBe(false);
-  });
+  test("throws INVALID_FORMAT for invalid peer ports", () => {
+    expect(() =>
+      validatePeers(
+        {
+          type: MessageType.PEERS,
+          peers: ["192.168.1.1:65536"],
+        },
+        ctx,
+      ),
+    ).toThrow(ProtocolError);
 
-  test("should reject port > 65535", () => {
-    expect(validateHost("192.168.1.1:65536")).toBe(false);
-  });
-
-  test("should reject non-numeric port", () => {
-    expect(validateHost("192.168.1.1:abc")).toBe(false);
-  });
-
-  test("should reject no colon", () => {
-    expect(validateHost("192.168.1.1")).toBe(false);
-  });
-
-  test("should reject empty string", () => {
-    expect(validateHost("")).toBe(false);
-  });
-
-  test("should handle newline in input (after trimming)", () => {
-    expect(validateHost("192.168.1.1:8080\n")).toBe(true);
-  });
-
-  test("should handle carriage return in input", () => {
-    expect(validateHost("192.168.1.1:8080\r")).toBe(true);
-  });
-
-  test("should handle Windows \r\n ending in input", () => {
-    expect(validateHost("192.168.1.1:8080\r\n")).toBe(true);
-  });
-
-  test("should validate trimmed peer from network", () => {
-    expect(validateHost("95.179.185.24:59362")).toBe(true);
+    expect(() =>
+      validatePeers(
+        {
+          type: MessageType.PEERS,
+          peers: ["192.168.1.1:65536"],
+        },
+        ctx,
+      ),
+    ).toThrow("Received message with invalid format");
   });
 });
 

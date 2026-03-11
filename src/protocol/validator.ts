@@ -12,25 +12,17 @@ import type {
   ValidMessage,
   ObjectMessage,
 } from "@/protocol/types";
-import { parseHost } from "@/shared/utils";
-
-export function validateHost(host: string): boolean {
-  const { port } = parseHost(host) || {};
-  if (!port) {
-    return false;
-  }
-  return Number.isInteger(port) && port > 0 && port <= 65535;
-}
+import { parsePeerAddress } from "@/shared/utils";
 
 export function validatePeers(
   message: PeersMessage,
   _ctx: ConnectedPeerContext,
 ): boolean {
   for (const peer of message.peers) {
-    if (!validateHost(peer)) {
+    if (!parsePeerAddress(peer)) {
       throw new ProtocolError(
         ErrorCode.INVALID_FORMAT,
-        `Received message with invalid format`,
+        "Received message with invalid format",
       );
     }
   }
