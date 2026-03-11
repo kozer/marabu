@@ -1,4 +1,4 @@
-import { SEPARATOR } from "@/shared/constants";
+import { DNS_BLACKLIST_TTL_MS, SEPARATOR } from "@/shared/constants";
 import ProtocolError from "@/protocol/error";
 import { checkHandshake, type ConnectionState } from "@/net/handshake";
 import { messageHandlers } from "@/net/messageHandlers";
@@ -15,7 +15,16 @@ export class PeerConnection {
   private buffer = "";
   private readonly state: ConnectionState = { hasHandshaked: false };
 
-  constructor(private readonly ctx: ConnectedPeerContext) {
+  constructor(
+    private readonly ctx: ConnectedPeerContext,
+    private readonly direction: "inbound" | "outbound",
+  ) {
+    if (this.direction === "outbound") {
+      ctx.peerManager.registerOutboundConnection(this);
+    }
+    if (this.direction === "inbound") {
+      ctx.peerManager.registerInboundConnection(this);
+    }
     this.attachSocketHandlers();
   }
 
@@ -47,20 +56,37 @@ export class PeerConnection {
     });
 
     this.ctx.socket.on("error", async (err) => {
-      this.ctx.logger.info(`Error: ${err}`);
       if (this.ctx.peerManager.hasOutboundConnection(this.id)) {
         await this.ctx.peerManager.onDialFail(this.id);
+
+        if (
+          err.message.includes("ENOTFOUND") ||
+          err.message.includes("EAI_AGAIN")
+        ) {
+          this.ctx.logger.warn(
+            `DNS resolution failed for ${this.id}: ${err.message}. Blacklisting for ${DNS_BLACKLIST_TTL_MS / 1000} seconds.`,
+          );
+          this.ctx.peerManager.blacklistPeer(
+            this.id,
+            DNS_BLACKLIST_TTL_MS,
+            err.message,
+          );
+          this.ctx.socket.destroy();
+          return;
+        }
       }
       this.ctx.peerManager.unregisterConnection(this.id);
       this.ctx.logger.debug(
         `Socket produced error for ${this.id}: ${err.message}`,
       );
+      this.ctx.logger.warn(`Failed to connect to ${this.id}: ${err.message}`);
     });
 
     this.ctx.socket.on("timeout", async () => {
-      this.ctx.logger.debug(`Socket timed out for ${this.id}`);
       if (this.ctx.peerManager.hasOutboundConnection(this.id)) {
-        await this.ctx.peerManager.onDialFail(this.id);
+        void this.ctx.peerManager.onDialFail(this.id);
+        this.ctx.socket.destroy();
+        return;
       }
       this.ctx.peerManager.unregisterConnection(this.id);
       this.ctx.socket.destroy();

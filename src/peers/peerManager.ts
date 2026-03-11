@@ -1,5 +1,7 @@
 import {
   BOOTSTRAP_PEERS,
+  DIAL_FAILURE_BLACKLIST_BASE_TTL_MS,
+  DIAL_FAILURE_BLACKLIST_THRESHOLD,
   INVALID_MESSAGE_BLACKLIST_BASE_TTL_MS,
   INVALID_MESSAGE_THRESHOLD,
   INVALID_SELF_HOSTS,
@@ -331,6 +333,16 @@ export class PeerManager {
     const record = this.getOrCreatePeerRecord(peer);
     record.failureCount += 1;
     record.lastFailureAt = Date.now();
+
+    if (
+      record.failureCount >= DIAL_FAILURE_BLACKLIST_THRESHOLD &&
+      !record.lastSuccessAt
+    ) {
+      const ttlMs =
+        Math.pow(2, record.failureCount) * DIAL_FAILURE_BLACKLIST_BASE_TTL_MS;
+      this.blacklistPeer(peer, ttlMs, "Repeated dial failures");
+    }
+
     await this.pruneStalePeers();
   }
 

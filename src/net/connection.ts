@@ -1,5 +1,9 @@
 import { Socket } from "net";
-import { MAX_PEERS, OUTBOUND_PEER_LIMIT } from "@/shared/constants";
+import {
+  DNS_BLACKLIST_TTL_MS,
+  MAX_PEERS,
+  OUTBOUND_PEER_LIMIT,
+} from "@/shared/constants";
 import { parsePeerAddress } from "@/shared/utils";
 import type { ConnectedPeerContext, PeerContext } from "@/protocol/types";
 import { PeerConnection } from "@/net/peerConnection";
@@ -10,8 +14,7 @@ export function handleInboundConnection(ctx: ConnectedPeerContext) {
     ctx.socket.destroy(); // Hang up immediately
     return;
   }
-  const connection = new PeerConnection(ctx);
-  ctx.peerManager.registerInboundConnection(connection);
+  const connection = new PeerConnection(ctx, "inbound");
   ctx.logger.info(
     `Inbound: ${ctx.peerManager.inboundConnectionCount}. Total: ${ctx.peerManager.totalConnections}/${MAX_PEERS}`,
   );
@@ -59,8 +62,7 @@ export function handleOutboundConnection(ctx: PeerContext) {
     client.connect(parsed.port, parsed.dialHost, () => {
       ctx.logger.info(`Successfully connected to ${cleanPeer}!`);
       client.setTimeout(0);
-      ctx.peerManager.registerOutboundConnection(connection);
     });
-    const connection = new PeerConnection(connectedContext);
+    const connection = new PeerConnection(connectedContext, "outbound");
   }
 }
