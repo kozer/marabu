@@ -17,18 +17,21 @@ import ip from "ip";
 import { isIP } from "node:net";
 import type { ValidMessage } from "@/protocol/types";
 
-type PeerRecord = {
+type KnownPeerRecord = {
   discoveredAt: number;
   introducedBy: Set<string>;
+};
+
+type PenaltyRecord = {
   failureCount: number;
   invalidMessageCount: number;
   lastFailureAt?: number;
-  lastSuccessAt?: number;
   blacklistedExpiresAt?: number;
 };
 
 export class PeerManager {
-  private knownPeers: Map<string, PeerRecord>;
+  private knownPeers: Map<string, KnownPeerRecord>;
+  private penalties: Map<string, PenaltyRecord>;
   private readonly store: PeerStore;
   private readonly myNode = `${SERVER_HOST}:${SERVER_PORT}`;
   private readonly logger: any;
@@ -37,6 +40,7 @@ export class PeerManager {
   constructor(store: PeerStore, logger: any) {
     this.store = store;
     this.knownPeers = new Map();
+    this.penalties = new Map();
     this.logger = logger;
     this.connectionRegistry = new ConnectionRegistry(logger);
   }
@@ -44,7 +48,7 @@ export class PeerManager {
   private getOrCreatePeerRecord(
     peer: string,
     sourcePeerId?: string,
-  ): PeerRecord {
+  ): KnownPeerRecord {
     const existing = this.knownPeers.get(peer);
     if (existing) {
       if (sourcePeerId) {
@@ -53,24 +57,61 @@ export class PeerManager {
       return existing;
     }
 
-    const created: PeerRecord = {
+    const created: KnownPeerRecord = {
       discoveredAt: Date.now(),
       introducedBy: sourcePeerId ? new Set([sourcePeerId]) : new Set(),
-      failureCount: 0,
-      invalidMessageCount: 0,
     };
     this.knownPeers.set(peer, created);
     return created;
   }
 
-  private isBlacklisted(peer: string, now = Date.now()): boolean {
-    const record = this.knownPeers.get(peer);
-    if (!record?.blacklistedExpiresAt) {
+  private toPenaltyKey(address: string): string | null {
+    const parsed = parsePeerAddress(address);
+    if (!parsed) {
+      return null;
+    }
+
+    return parsed.dialHost.toLowerCase();
+  }
+
+  private getOrCreatePenalty(key: string): PenaltyRecord {
+    const existing = this.penalties.get(key);
+    if (existing) {
+      return existing;
+    }
+
+    const created: PenaltyRecord = {
+      failureCount: 0,
+      invalidMessageCount: 0,
+    };
+    this.penalties.set(key, created);
+    return created;
+  }
+
+  private clearConnectionBackoff(address: string): void {
+    const penaltyKey = this.toPenaltyKey(address);
+    if (!penaltyKey) {
+      return;
+    }
+
+    const penalty = this.getOrCreatePenalty(penaltyKey);
+    penalty.failureCount = 0;
+    delete penalty.lastFailureAt;
+  }
+
+  private isBlacklisted(address: string, now = Date.now()): boolean {
+    const penaltyKey = this.toPenaltyKey(address);
+    if (!penaltyKey) {
       return false;
     }
 
-    if (record.blacklistedExpiresAt <= now) {
-      delete record.blacklistedExpiresAt;
+    const penalty = this.penalties.get(penaltyKey);
+    if (!penalty?.blacklistedExpiresAt) {
+      return false;
+    }
+
+    if (penalty.blacklistedExpiresAt <= now) {
+      delete penalty.blacklistedExpiresAt;
       return false;
     }
 
@@ -91,10 +132,7 @@ export class PeerManager {
     return count < MAX_PEERS_PER_SOURCE;
   }
 
-  private shouldPrunePeer(record: PeerRecord, now = Date.now()): boolean {
-    if (record.lastSuccessAt) {
-      return false;
-    }
+  private shouldPrunePeer(record: KnownPeerRecord, now = Date.now()): boolean {
     return now - record.discoveredAt >= STALE_PEER_MAX_AGE_TTL;
   }
 
@@ -107,7 +145,6 @@ export class PeerManager {
       }
 
       this.knownPeers.delete(peer);
-      this.connectionRegistry.unregister(peer);
       peersToRemove += 1;
     }
 
@@ -120,9 +157,14 @@ export class PeerManager {
     return peersToRemove;
   }
 
-  private canDial(peer: string, now = Date.now()): boolean {
-    const record = this.knownPeers.get(peer);
-    if (!record) {
+  private isHostAllowedToConnect(peer: string, now = Date.now()): boolean {
+    const penaltyKey = this.toPenaltyKey(peer);
+    if (!penaltyKey) {
+      return true;
+    }
+
+    const penalty = this.penalties.get(penaltyKey);
+    if (!penalty) {
       return true;
     }
 
@@ -130,12 +172,12 @@ export class PeerManager {
       return false;
     }
 
-    if (!record.lastFailureAt || record.failureCount === 0) {
+    if (!penalty.lastFailureAt || penalty.failureCount === 0) {
       return true;
     }
 
-    const cooldown = Math.pow(2, record.failureCount) * 60 * 1000;
-    return now - record.lastFailureAt >= cooldown;
+    const cooldown = Math.pow(2, penalty.failureCount) * 60 * 1000;
+    return now - penalty.lastFailureAt >= cooldown;
   }
 
   private toValidatedNormalizedPeer(peer: string): string | null {
@@ -198,8 +240,8 @@ export class PeerManager {
   }
 
   getPeersForAdvertisement(): string[] {
-    const peers = this.getKnownPeers().filter((peer) =>
-      this.isAcceptablePeer(peer),
+    const peers = this.getKnownPeers().filter(
+      (peer) => this.isAcceptablePeer(peer) && !this.isBlacklisted(peer),
     );
     if (!peers.includes(this.myNode)) {
       peers.unshift(this.myNode);
@@ -245,8 +287,8 @@ export class PeerManager {
       this.logger.info(`My node address: ${this.myNode}`);
 
       for (const peer of peersToLoad) {
-        const normalizedPeer = normalizePeer(peer);
-        if (!this.isAcceptablePeer(normalizedPeer)) {
+        const normalizedPeer = this.toValidatedNormalizedPeer(peer);
+        if (!normalizedPeer) {
           continue;
         }
 
@@ -263,8 +305,8 @@ export class PeerManager {
     } catch (err) {
       this.logger.error(err, "Failed to load peers from storage");
       for (const peer of BOOTSTRAP_PEERS) {
-        const normalizedPeer = normalizePeer(peer);
-        if (!this.isAcceptablePeer(normalizedPeer)) {
+        const normalizedPeer = this.toValidatedNormalizedPeer(peer);
+        if (!normalizedPeer) {
           continue;
         }
 
@@ -287,15 +329,12 @@ export class PeerManager {
   }
 
   registerInboundConnection(connection: PeerConnection): void {
-    //Inbound connections are just clients. No need to update peer records or check blacklisting here.
+    this.clearConnectionBackoff(connection.id);
     this.connectionRegistry.registerInbound(connection);
   }
 
   registerOutboundConnection(connection: PeerConnection): void {
-    const record = this.getOrCreatePeerRecord(connection.id);
-    record.failureCount = 0;
-    record.lastSuccessAt = Date.now();
-
+    this.clearConnectionBackoff(connection.id);
     this.connectionRegistry.registerOutbound(connection);
     this.logger.info(
       `Outbound peer connected: ${connection.id}. Active outbound peers: ${this.connectionRegistry.outboundCount}`,
@@ -306,10 +345,15 @@ export class PeerManager {
     this.connectionRegistry.unregister(id);
   }
 
-  async onDialFail(peer: string): Promise<void> {
-    const record = this.getOrCreatePeerRecord(peer);
-    record.failureCount += 1;
-    record.lastFailureAt = Date.now();
+  async reportConnectionFailure(address: string): Promise<void> {
+    const penaltyKey = this.toPenaltyKey(address);
+    if (!penaltyKey) {
+      return;
+    }
+
+    const penalty = this.getOrCreatePenalty(penaltyKey);
+    penalty.failureCount += 1;
+    penalty.lastFailureAt = Date.now();
 
     const removedPeers = await this.pruneStalePeers();
     if (removedPeers > 0) {
@@ -317,34 +361,37 @@ export class PeerManager {
     }
   }
 
-  async reportInvalidPeer(peer: string, reason: string): Promise<void> {
-    const record = this.knownPeers.get(peer);
-    if (!record) {
+  async reportInvalidPeerMessage(peer: string, reason: string): Promise<void> {
+    const penaltyKey = this.toPenaltyKey(peer);
+    if (!penaltyKey) {
       this.logger.warn(`Unknown peer ${peer} sent invalid data: ${reason}`);
       return;
     }
 
-    let shouldSave = false;
-    record.invalidMessageCount += 1;
+    const penalty = this.getOrCreatePenalty(penaltyKey);
+    penalty.invalidMessageCount += 1;
     this.logger.warn(
-      `Peer ${peer} sent invalid data (${record.invalidMessageCount}): ${reason}`,
+      `Peer ${peer} sent invalid data (${penalty.invalidMessageCount}): ${reason}`,
     );
 
-    if (record.invalidMessageCount >= INVALID_MESSAGE_THRESHOLD) {
+    if (penalty.invalidMessageCount >= INVALID_MESSAGE_THRESHOLD) {
       const ttlMs =
-        Math.pow(2, record.invalidMessageCount) * INVALID_MESSAGE_BLACKLIST_TTL;
-      record.blacklistedExpiresAt = Date.now() + ttlMs;
+        Math.pow(2, penalty.invalidMessageCount) *
+        INVALID_MESSAGE_BLACKLIST_TTL;
+      penalty.blacklistedExpiresAt = Date.now() + ttlMs;
       this.logger.warn(
-        `Blacklisted peer ${peer} for ${ttlMs}ms. Reason: ${reason}`,
+        `Blacklisted host ${penaltyKey} for ${ttlMs}ms. Reason: ${reason}`,
       );
-      this.connectionRegistry.unregister(peer);
-      shouldSave = true;
+      for (const connection of this.connectionRegistry.getConnectedPeers()) {
+        if (this.toPenaltyKey(connection.id) !== penaltyKey) {
+          continue;
+        }
+        this.connectionRegistry.unregister(connection.id);
+      }
     }
 
     const removedPeers = await this.pruneStalePeers();
-    shouldSave = shouldSave || removedPeers > 0;
-
-    if (shouldSave) {
+    if (removedPeers > 0) {
       await this.save();
     }
   }
@@ -357,7 +404,14 @@ export class PeerManager {
     return this.connectionRegistry.outboundCount;
   }
 
-  canAcceptInbound(): boolean {
+  canAcceptInbound(peerId?: string): boolean {
+    if (
+      peerId &&
+      (this.isBlacklisted(peerId) || !this.isHostAllowedToConnect(peerId))
+    ) {
+      return false;
+    }
+
     return this.connectionRegistry.canAcceptInbound();
   }
 
@@ -385,7 +439,7 @@ export class PeerManager {
         return false;
       }
 
-      return this.canDial(peer);
+      return this.isHostAllowedToConnect(peer);
     });
   }
 

@@ -38,15 +38,8 @@ export class PeerConnection {
     sendMessage(this.ctx.socket, message);
   }
 
-  private isOutboundDialInProgress(): boolean {
-    return (
-      this.direction === ConnectionDirection.OUTBOUND &&
-      !this.ctx.peerManager.hasOutboundConnection(this.id)
-    );
-  }
-
   private onConnect(): void {
-    if (this.isOutboundDialInProgress()) {
+    if (this.direction === ConnectionDirection.OUTBOUND) {
       this.ctx.peerManager.registerOutboundConnection(this);
     }
 
@@ -69,34 +62,16 @@ export class PeerConnection {
     });
 
     this.ctx.socket.on("error", async (err) => {
-      if (this.isOutboundDialInProgress()) {
-        await this.ctx.peerManager.onDialFail(this.id);
-
-        if (
-          err.message.includes("ENOTFOUND") ||
-          err.message.includes("EAI_AGAIN")
-        ) {
-          this.ctx.logger.warn(
-            `DNS resolution failed for ${this.id}: ${err.message}. Waiting for dial backoff before retrying.`,
-          );
-          this.ctx.socket.destroy();
-          return;
-        }
-      }
+      await this.ctx.peerManager.reportConnectionFailure(this.id);
 
       this.ctx.peerManager.unregisterConnection(this.id);
-      this.ctx.logger.debug(
-        `Socket produced error for ${this.id}: ${err.message}`,
-      );
-      this.ctx.logger.warn(`Failed to connect to ${this.id}: ${err.message}`);
+      this.ctx.socket.destroy();
+      this.ctx.logger.warn(`Connection error for ${this.id}: ${err.message}`);
     });
 
     this.ctx.socket.on("timeout", async () => {
-      if (this.isOutboundDialInProgress()) {
-        await this.ctx.peerManager.onDialFail(this.id);
-        this.ctx.socket.destroy();
-        return;
-      }
+      await this.ctx.peerManager.reportConnectionFailure(this.id);
+
       this.ctx.peerManager.unregisterConnection(this.id);
       this.ctx.socket.destroy();
     });
