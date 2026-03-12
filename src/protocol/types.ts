@@ -1,7 +1,7 @@
 import z from "zod";
 import { Socket } from "net";
 import type { PeerManager } from "@/peers/peerManager";
-import type { DatabaseInterface } from "@/storage/db";
+import type { ObjectMapperInterface } from "@/storage/objectMapper";
 
 export enum MessageType {
   HELLO = "hello",
@@ -185,7 +185,7 @@ export type ResolvedInput = z.infer<typeof InputTransactionSchema> & {
 export interface PeerContext {
   peerManager: PeerManager;
   logger: any;
-  db: DatabaseInterface;
+  mapper: ObjectMapperInterface;
 }
 export type ConnectedPeerContext = PeerContext & {
   socket: Socket;

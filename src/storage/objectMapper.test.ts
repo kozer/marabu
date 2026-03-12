@@ -1,6 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import ObjectMapper from "@/storage/objectMapper";
 
+function createMapper() {
+  const db = {
+    get: async (_id: string) => undefined,
+    has: async (_id: string) => false,
+  } as any;
+
+  return new ObjectMapper(db);
+}
+
 const GENESIS_BLOCK = {
   T: "00000000abc00000000000000000000000000000000000000000000000000000",
   created: 1771159355,
@@ -14,7 +23,9 @@ const GENESIS_BLOCK = {
 
 describe("ObjectMapper", () => {
   test("computes the expected BLAKE2s id for the genesis block", () => {
-    expect(ObjectMapper.toId(GENESIS_BLOCK)).toBe(
+    const mapper = createMapper();
+
+    expect(mapper.id(GENESIS_BLOCK)).toBe(
       "00000000522473196b73bc619a8b18472c4cb4c6caf785a13fa32aaae7222ff6",
     );
   });
@@ -26,6 +37,8 @@ describe("ObjectMapper", () => {
   });
 
   test("produces the same id regardless of object key order", () => {
+    const mapper = createMapper();
+
     const txA = {
       type: "transaction",
       inputs: [
@@ -64,6 +77,6 @@ describe("ObjectMapper", () => {
       type: "transaction",
     } as any;
 
-    expect(ObjectMapper.toId(txA)).toBe(ObjectMapper.toId(txB));
+    expect(mapper.id(txA)).toBe(mapper.id(txB));
   });
 });

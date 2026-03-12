@@ -16,6 +16,7 @@ export const MAX_PEERS = 1000;
 export const OUTBOUND_PEER_LIMIT = 200;
 
 export const DEFAULT_DB_PATH = "./marabudb";
+export const FIND_TIMEOUT_MS = 5000;
 
 export const MAX_PEERS_FROM_MESSAGE = 32;
 export const MAX_PEERS_PER_SOURCE = 64;

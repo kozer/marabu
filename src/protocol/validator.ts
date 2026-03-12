@@ -37,7 +37,7 @@ export async function validateOutpoints(
     ...new Set(inputs!.map((input) => input.outpoint.txid)),
   ];
   const fetchedTxs = await Promise.all(
-    uniqueInputTxIds.map((txid) => ctx.db.getObject(txid)),
+    uniqueInputTxIds.map((txid) => ctx.mapper.get(txid)),
   );
   const txCache = uniqueInputTxIds.reduce((txMap, txid, index) => {
     const foundObj = fetchedTxs[index];

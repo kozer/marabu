@@ -22,14 +22,14 @@ const logger = {
   warn: (..._args: any[]) => {},
 };
 
-const db = {
-  async putObject(_key: string, _value: any): Promise<void> {
+const mapper = {
+  async put(_key: string, _value: any): Promise<void> {
     return;
   },
-  async getObject(_key: string): Promise<any> {
+  async get(_key: string): Promise<any> {
     return null;
   },
-};
+} as any;
 
 const TEST_PORT = 18018;
 
@@ -159,7 +159,7 @@ describe("Test node functionality", () => {
         socket,
         peerManager,
         logger,
-        db,
+        mapper,
       };
       handleInboundConnection(ctx);
     });
@@ -574,7 +574,7 @@ describe("Test node functionality", () => {
     await closeSocket(socket2);
   });
 
-  describe("Additional Edge Cases", () => {
+  describe("Other cases", () => {
     test("should handle multiple messages in single packet", async () => {
       const socket = await connectToNode();
 
@@ -625,7 +625,7 @@ describe("Test node functionality", () => {
       await closeSocket(socket);
     });
 
-    test("should handle empty message (just newline)", async () => {
+    test("should handle newline message", async () => {
       const socket = await connectToNode();
 
       await receiveMessages(socket, 200);
@@ -773,7 +773,7 @@ describe("Test node functionality", () => {
       }
     });
 
-    test("should handle connection without agent field (optional)", async () => {
+    test("should handle connection without agent field", async () => {
       const socket = await connectToNode();
 
       await receiveMessages(socket, 200);

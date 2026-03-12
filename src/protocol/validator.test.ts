@@ -47,10 +47,10 @@ function createContext(
     socket: {} as any,
     peerManager: {} as any,
     logger,
-    db: {
-      putObject: async () => {},
-      getObject: async (key: string) => objects[key] ?? null,
-    },
+    mapper: {
+      put: async () => {},
+      get: async (key: string) => objects[key] ?? null,
+    } as any,
   };
 }
 
@@ -231,13 +231,13 @@ describe("validateOutpoints", () => {
     let getObjectCalls = 0;
     const ctx = {
       ...createContext({ [PREV_TX_ID]: previousTxObject }),
-      db: {
-        putObject: async () => {},
-        getObject: async (key: string) => {
+      mapper: {
+        put: async () => {},
+        get: async (key: string) => {
           getObjectCalls += 1;
           return key === PREV_TX_ID ? previousTxObject : null;
         },
-      },
+      } as any,
     } as ConnectedPeerContext;
 
     const inputs: InputTransactionMessage[] = [

@@ -7,13 +7,13 @@ import {
 } from "@/net/connection";
 import { PeerManager } from "@/peers/peerManager";
 import { FilePeerStore } from "@/peers/peerStore";
-import LevelDatabase from "@/storage/db";
+import ObjectMapper from "./storage/objectMapper";
 
 async function startNode() {
   const peerManager = new PeerManager(new FilePeerStore(PEERS_FILE), logger);
   await peerManager.load();
   const server = createServer();
-  const db = new LevelDatabase("");
+  const objectMapper = new ObjectMapper();
   server.listen(SERVER_PORT, function () {
     console.log(
       `Server listening for connection requests on socket localhost:${SERVER_PORT}`,
@@ -23,7 +23,7 @@ async function startNode() {
   const ctx = {
     peerManager,
     logger,
-    db,
+    mapper: objectMapper,
   };
   server.on("connection", function (socket: Socket) {
     const id = `${socket.remoteAddress}:${socket.remotePort}`;
