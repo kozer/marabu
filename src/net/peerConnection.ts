@@ -70,6 +70,7 @@ export class PeerConnection {
     });
 
     this.ctx.socket.on("timeout", async () => {
+      this.ctx.logger.warn(`Connection timeout for ${this.id}`);
       await this.ctx.peerManager.reportConnectionFailure(this.id);
 
       this.ctx.peerManager.unregisterConnection(this.id);

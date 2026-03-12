@@ -404,15 +404,11 @@ export class PeerManager {
   }
 
   canAcceptInbound(peerId?: string): boolean {
-    if (peerId && !this.isHostAllowedToConnect(peerId)) {
+    if (peerId && this.isBlacklisted(peerId)) {
       return false;
     }
 
     return this.connectionRegistry.canAcceptInbound();
-    return (
-      (peerId && !this.isHostAllowedToConnect(peerId)) ||
-      this.connectionRegistry.canAcceptInbound()
-    );
   }
 
   canAcceptOutbound(): boolean {
