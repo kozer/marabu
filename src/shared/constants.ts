@@ -20,5 +20,5 @@ export const DEFAULT_DB_PATH = "./marabudb";
 export const MAX_PEERS_FROM_MESSAGE = 32;
 export const MAX_PEERS_PER_SOURCE = 64;
 export const STALE_PEER_MAX_AGE_TTL = 2 * 24 * 60 * 60 * 1000;
-export const INVALID_MESSAGE_THRESHOLD = 10;
+export const INVALID_MESSAGE_THRESHOLD = 100;
 export const INVALID_MESSAGE_BLACKLIST_TTL = 60 * 1000;

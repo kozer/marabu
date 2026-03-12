@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { MemoryPeerStore } from "@/peers/peerStore";
 import { PeerManager } from "@/peers/peerManager";
+import { INVALID_MESSAGE_THRESHOLD } from "@/shared/constants";
 
 const logger = {
   info: (..._args: any[]) => {},
@@ -54,7 +55,7 @@ describe("PeerManager", () => {
     const inboundConnectionId = "198.51.100.88:54321";
     await peerManager.addKnownPeers([knownPeer], "198.51.100.10:18018");
 
-    for (let i = 0; i < 10; i += 1) {
+    for (let i = 0; i < INVALID_MESSAGE_THRESHOLD; i += 1) {
       await peerManager.reportInvalidPeerMessage(
         inboundConnectionId,
         "bad data",
@@ -73,7 +74,7 @@ describe("PeerManager", () => {
       "198.51.100.10:18018",
     );
 
-    for (let i = 0; i < 10; i += 1) {
+    for (let i = 0; i < INVALID_MESSAGE_THRESHOLD; i += 1) {
       await peerManager.reportInvalidPeerMessage(badPeer, "bad data");
     }
 
@@ -115,7 +116,7 @@ describe("PeerManager", () => {
 
     expect(peerManager.getOutboundCandidates()).toContain(peer);
 
-    for (let i = 0; i < 10; i += 1) {
+    for (let i = 0; i < INVALID_MESSAGE_THRESHOLD; i += 1) {
       await peerManager.reportInvalidPeerMessage(peer, "bad data");
     }
     peerManager.registerOutboundConnection(connection);
