@@ -1,6 +1,11 @@
 import canonicalize from "canonicalize";
 import * as ed from "@noble/ed25519";
-import { MessageType, ErrorCode, ObjectType } from "@/protocol/types";
+import {
+  MessageType,
+  ErrorCode,
+  ObjectType,
+  GENESIS_BLOCK_ID,
+} from "@/protocol/types";
 import ProtocolError from "@/protocol/error";
 import type {
   ConnectedPeerContext,
@@ -11,8 +16,9 @@ import type {
   TransactionMessage,
   ValidMessage,
   ObjectMessage,
+  BlockMessage,
 } from "@/protocol/types";
-import { parsePeerAddress } from "@/shared/utils";
+import { parsePeerAddress, sendMessage } from "@/shared/utils";
 
 export function validatePeers(
   message: PeersMessage,
@@ -196,11 +202,79 @@ export async function validateTransaction(
   return true;
 }
 
+export function checkPOW(
+  block: BlockMessage,
+  ctx: ConnectedPeerContext,
+): boolean {
+  return ctx.mapper.id(block).toLowerCase() < block.T.toLowerCase();
+}
+
+export async function checkTxsInBlock(
+  block: BlockMessage,
+  ctx: ConnectedPeerContext,
+): Promise<TransactionMessage[]> {
+  try {
+    const objs = await Promise.all(
+      block.txids.map((txid) =>
+        ctx.mapper.findObject(txid, (id) =>
+          sendMessage(ctx.socket, {
+            type: MessageType.GET_OBJECT,
+            objectid: id,
+          }),
+        ),
+      ),
+    );
+    return objs.map((obj) => {
+      return obj.object as TransactionMessage;
+    });
+  } catch (e) {
+    throw new ProtocolError(
+      ErrorCode.UNFINDABLE_OBJECT,
+      `Failed to find transaction in block: ${(e as Error).message}`,
+    );
+  }
+}
+
+export async function validateBlock(
+  block: BlockMessage,
+  ctx: ConnectedPeerContext,
+): Promise<boolean> {
+  if (block.previd === null) {
+    if (ctx.mapper.id(block) !== GENESIS_BLOCK_ID) {
+      throw new ProtocolError(
+        ErrorCode.INVALID_GENESIS,
+        `Genesis block has invalid ID ${ctx.mapper.id(block)}`,
+      );
+    }
+  }
+  const isvalidPOW = checkPOW(block, ctx);
+  if (!isvalidPOW) {
+    throw new ProtocolError(
+      ErrorCode.INVALID_BLOCK_POW,
+      `Block ${ctx.mapper.id(block)} does not satisfy proof-of-work requirement`,
+    );
+  }
+  const blockTxs = await checkTxsInBlock(block, ctx);
+  for (const tx of blockTxs) {
+    try {
+      await validateTransaction(tx, ctx);
+    } catch (e) {
+      throw new ProtocolError(
+        ErrorCode.UNFINDABLE_OBJECT,
+        `Block ${ctx.mapper.id(block)} contains invalid transaction ${ctx.mapper.id(tx)}: ${(e as Error).message}`,
+      );
+    }
+  }
+  //TODO: Implement the rest of the block validation rules (timestamp, coinbase transaction, etc.)
+
+  return true;
+}
 export async function validateObject(
   message: ObjectMessage,
   ctx: ConnectedPeerContext,
 ): Promise<boolean> {
   if (message.object.type === ObjectType.BLOCK) {
+    // return validateBlock(message.object, ctx);
     return true;
   }
   //We don't need to check for other types, as zod covers that.

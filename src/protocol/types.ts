@@ -22,9 +22,11 @@ export enum ObjectType {
   BLOCK = "block",
 }
 
-/**
- * Protocol Error Codes for Node-to-Node Communication
- */
+export const TARGET =
+  "00000000abc00000000000000000000000000000000000000000000000000000";
+export const GENESIS_BLOCK_ID =
+  "00000000522473196b73bc619a8b18472c4cb4c6caf785a13fa32aaae7222ff6";
+
 export enum ErrorCode {
   // An error occurred within the node while processing the message.
   INTERNAL_ERROR = "INTERNAL_ERROR",
@@ -134,9 +136,22 @@ export const TransactionSchema = z.object({
   outputs: z.array(OutputTransactionSchema),
 });
 
+const AsciiPrintableSchema = z
+  .string()
+  .max(128, "String must be 128 characters or fewer")
+  .regex(/^[\x20-\x7E]*$/);
+
 // Make block schema a loose object for now, as we don't care for Pset2.
 export const BlockSchema = z.looseObject({
   type: z.literal(ObjectType.BLOCK),
+  created: z.int().nonnegative(),
+  nonce: z.hex().length(64),
+  miner: AsciiPrintableSchema.optional(),
+  note: AsciiPrintableSchema.optional(),
+  previd: z.hex().length(64).nullable(),
+  studentids: z.array(AsciiPrintableSchema).max(10).optional(),
+  T: z.literal(TARGET),
+  txids: z.array(z.hex().length(64)),
 });
 
 export const ObjectDataSchema = z.discriminatedUnion("type", [
@@ -174,6 +189,7 @@ export type GetMempoolMessage = z.infer<typeof GetMempoolMessageSchema>;
 export type MempoolMessage = z.infer<typeof MempoolMessageSchema>;
 export type TransactionMessage = z.infer<typeof TransactionSchema>;
 export type ObjectMessage = z.infer<typeof ObjectMessageSchema>;
+export type BlockMessage = z.infer<typeof BlockSchema>;
 export type IHaveObjectMessage = z.infer<typeof IHaveObjectMessageSchema>;
 export type GetObjectMessage = z.infer<typeof GetOjbectMessageSchema>;
 export type OutputTransactionMessage = z.infer<typeof OutputTransactionSchema>;
