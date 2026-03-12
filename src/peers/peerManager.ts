@@ -114,7 +114,6 @@ export class PeerManager {
       delete penalty.blacklistedExpiresAt;
       return false;
     }
-
     return true;
   }
 
@@ -405,14 +404,15 @@ export class PeerManager {
   }
 
   canAcceptInbound(peerId?: string): boolean {
-    if (
-      peerId &&
-      (this.isBlacklisted(peerId) || !this.isHostAllowedToConnect(peerId))
-    ) {
+    if (peerId && !this.isHostAllowedToConnect(peerId)) {
       return false;
     }
 
     return this.connectionRegistry.canAcceptInbound();
+    return (
+      (peerId && !this.isHostAllowedToConnect(peerId)) ||
+      this.connectionRegistry.canAcceptInbound()
+    );
   }
 
   canAcceptOutbound(): boolean {
