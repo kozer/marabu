@@ -1,6 +1,6 @@
 import canonicalize from "canonicalize";
-// Blake2 cannot be used due to compatibility issues with bun.
-import { createHash } from "node:crypto";
+import { blake2s } from "@noble/hashes/blake2.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
 
 class ObjectMapper {
   public static toId(obj: unknown): string {
@@ -9,7 +9,7 @@ class ObjectMapper {
       throw new Error("Failed to canonicalize object");
     }
 
-    return createHash("blake2s256").update(canonical, "utf8").digest("hex");
+    return bytesToHex(blake2s(Buffer.from(canonical, "utf8")));
   }
 }
 export default ObjectMapper;
