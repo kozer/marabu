@@ -18,7 +18,15 @@ import type {
   ObjectMessage,
   BlockMessage,
 } from "@/protocol/types";
-import { parsePeerAddress, sendMessage } from "@/shared/utils";
+import { parsePeerAddress } from "@/shared/utils";
+
+export function isCoinbaseTx(tx: TransactionMessage): boolean {
+  return (
+    tx.height !== undefined &&
+    tx.inputs === undefined &&
+    tx.outputs.length === 1
+  );
+}
 
 export function validatePeers(
   message: PeersMessage,
@@ -160,11 +168,11 @@ export function verifyLawOfConservation(
   return isConserved;
 }
 
-export async function validateTransaction(
+export async function validateRegularTx(
   tx: TransactionMessage,
   ctx: ConnectedPeerContext,
 ): Promise<boolean> {
-  const isCoinbase = tx.height !== undefined && tx.inputs === undefined;
+  const isCoinbase = isCoinbaseTx(tx);
   if (!isCoinbase) {
     if (!tx.inputs || tx.inputs.length === 0) {
       throw new ProtocolError(
@@ -217,14 +225,22 @@ export async function checkTxsInBlock(
     const objs = await Promise.all(
       block.txids.map((txid) =>
         ctx.mapper.findObject(txid, (id) =>
-          sendMessage(ctx.socket, {
-            type: MessageType.GET_OBJECT,
-            objectid: id,
-          }),
+          ctx.peerManager.broadcast(
+            {
+              type: MessageType.GET_OBJECT,
+              objectid: id,
+            },
+            ctx.id,
+          ),
         ),
       ),
     );
     return objs.map((obj) => {
+      if (obj.object.type !== ObjectType.TRANSACTION) {
+        throw new Error(
+          "Object with ID ${ctx.mapper.id(obj.object)} is not a transaction",
+        );
+      }
       return obj.object as TransactionMessage;
     });
   } catch (e) {
@@ -235,10 +251,109 @@ export async function checkTxsInBlock(
   }
 }
 
+export function checkForCoinbaseTxs(
+  block: BlockMessage,
+  blockTxs: TransactionMessage[],
+  ctx: ConnectedPeerContext,
+): boolean {
+  const coinbaseTxs = blockTxs.filter(isCoinbaseTx);
+  if (coinbaseTxs.length > 1) {
+    throw new Error(`Block contains more than one coinbase transaction`);
+  }
+  if (coinbaseTxs.length === 1) {
+    const coinbaseTx = coinbaseTxs[0];
+    if (ctx.mapper.id(coinbaseTx) !== block.txids[0]) {
+      throw new Error(
+        `Coinbase transaction is not at index 0 in txids (found at index ${block.txids.indexOf(ctx.mapper.id(coinbaseTx))})`,
+      );
+    }
+  }
+  return true;
+}
+
+export function checkForCoinbaseSpending(
+  blockTxs: TransactionMessage[],
+  ctx: ConnectedPeerContext,
+): boolean {
+  const coinbaseTxs = blockTxs.filter(isCoinbaseTx);
+  if (coinbaseTxs.length === 0) {
+    return true;
+  }
+  // We have check for more than one coinbase transaction in checkForCoinbaseTxs, so we know there is exactly one if we are here.
+  const coinbaseTx = coinbaseTxs[0]!;
+  const coinbaseTxId = ctx.mapper.id(coinbaseTx);
+  for (const tx of blockTxs) {
+    if (tx.inputs) {
+      for (const input of tx.inputs) {
+        if (input.outpoint.txid === coinbaseTxId) {
+          throw new Error(
+            `Coinbase transaction ${coinbaseTxId} is spent by transaction ${ctx.mapper.id(tx)}`,
+          );
+        }
+      }
+    }
+  }
+  return true;
+}
 export async function validateBlock(
   block: BlockMessage,
   ctx: ConnectedPeerContext,
 ): Promise<boolean> {
+  /*
+			VERIFIED BY zod
+			a. Check that the block contains all required fields and that they are of the format specified
+			in [1]. Send back an INVALID_FORMAT error otherwise.
+
+			VERIFIED BY zod
+			b. Ensure the target is the one required, i.e.
+			"00000000abc00000000000000000000000000000000000000000000000000000"
+			Send back an INVALID_FORMAT error otherwise.
+
+
+			VERIFIED BY checkPOW
+			c. Check the proof-of-work. If not satisfied, send back an INVALID_BLOCK_POW error.
+
+			VERIFIED BY checkTxsInBlock
+			d. Check that for all the txids in the block, you have the corresponding transaction in your
+			local object database. If not, then send a "getobject" message to your peers in order
+			to get the transaction. If you still cannot find the transaction and none of your peers
+			have found it and sent it back, send back an UNFINDABLE_OBJECT error to the peer who
+			sent you the block.
+
+      VERIFIED BY validateRegularTx after checkTxsInBlock
+			e. For each transaction in the block, check that the transaction is valid, and update your
+			UTXO set based on the transaction. More details on this in Section 2. If any transaction
+			is invalid, the whole block will be considered invalid. Since you should not add such
+			invalid transaction to your database and other peers should not send it back to you,
+			send back an UNFINDABLE_OBJECT error in the case of an invalid transaction in a block.
+
+      VERIFIED BY checkForCoinbaseTxs
+			f. Check for coinbase transactions. There can be at most one coinbase transaction in a
+			block. If present, then the txid of the coinbase transaction must be at index 0 in txids.
+			Send back an INVALID_BLOCK_COINBASE error otherwise.
+
+      VERIFIED BY checkForCoinbaseSpending
+			g. Check for coinbase transaction spending. The coinbase transaction cannot be spent in
+			another transaction in the same block (this is in order to make the law of conservation
+			for the coinbase transaction easier to verify). Send back an INVALID_TX_OUTPOINT error
+			otherwise.
+
+			h. Validate the coinbase transaction if there is one.
+			h.a) Check that the coinbase transaction has no inputs, exactly one output and a height.
+			Check that the height and the public key are of the valid format. (We will check
+			if the height is correct in the next homework when we validate chains, not now.)
+			Send back an INVALID_FORMAT error otherwise.
+			h.b) Verify the law of conservation for the coinbase transaction. The output of the
+			coinbase transaction can be at most the sum of transaction fees in the block plus
+			the block reward. In our protocol, the block reward is a constant 50 × 1012 picabu.
+			The fee of a transaction is the sum of its input values minus the sum of its output
+			values. Send back an INVALID_BLOCK_COINBASE error otherwise.
+
+			i. When you receive a block object from the network, validate it. If valid, then store the
+			block in your local database and gossip the block. Here, “gossip” means that you send
+			an ihaveobject message with the corresponding blockid.
+*/
+
   if (block.previd === null) {
     if (ctx.mapper.id(block) !== GENESIS_BLOCK_ID) {
       throw new ProtocolError(
@@ -255,9 +370,25 @@ export async function validateBlock(
     );
   }
   const blockTxs = await checkTxsInBlock(block, ctx);
+  try {
+    checkForCoinbaseTxs(block, blockTxs, ctx);
+  } catch (e) {
+    throw new ProtocolError(
+      ErrorCode.INVALID_BLOCK_COINBASE,
+      `Block ${ctx.mapper.id(block)} has invalid coinbase transaction: ${(e as Error).message}`,
+    );
+  }
+  try {
+    checkForCoinbaseSpending(blockTxs, ctx);
+  } catch (e) {
+    throw new ProtocolError(
+      ErrorCode.INVALID_TX_OUTPOINT,
+      `Block ${ctx.mapper.id(block)} has invalid coinbase transaction spending: ${(e as Error).message}`,
+    );
+  }
   for (const tx of blockTxs) {
     try {
-      await validateTransaction(tx, ctx);
+      await validateRegularTx(tx, ctx);
     } catch (e) {
       throw new ProtocolError(
         ErrorCode.UNFINDABLE_OBJECT,
@@ -278,7 +409,7 @@ export async function validateObject(
     return true;
   }
   //We don't need to check for other types, as zod covers that.
-  return validateTransaction(message.object, ctx);
+  return validateRegularTx(message.object, ctx);
 }
 
 type GenericValidator = (

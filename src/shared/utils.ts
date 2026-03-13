@@ -64,8 +64,7 @@ export function parsePeerAddress(input: string): ParsedPeerAddress | null {
     return null;
   }
 
-  const isBracketed =
-    parsed.host.startsWith("[") && parsed.host.endsWith("]");
+  const isBracketed = parsed.host.startsWith("[") && parsed.host.endsWith("]");
   let dialHost = isBracketed ? parsed.host.slice(1, -1) : parsed.host;
 
   if (dialHost.startsWith("::ffff:")) {

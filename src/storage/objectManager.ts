@@ -4,8 +4,9 @@ import { bytesToHex } from "@noble/hashes/utils.js";
 import { Level } from "level";
 import type { ObjectMessage } from "@/protocol/types";
 import { DEFAULT_DB_PATH, FIND_TIMEOUT_MS } from "@/shared/constants";
+import RequestQueue from "./requestQueue";
 
-export interface ObjectMapperInterface {
+export interface ObjectManagerInterface {
   id(obj: unknown): string;
   exists(id: string): Promise<boolean>;
   get(id: string): Promise<ObjectMessage>;
@@ -15,7 +16,7 @@ export interface ObjectMapperInterface {
   ): Promise<ObjectMessage>;
 }
 
-class ObjectMapper implements ObjectMapperInterface {
+class ObjectManager implements ObjectManagerInterface {
   private db: Level;
   pendingFinds: Map<
     string,
@@ -24,6 +25,7 @@ class ObjectMapper implements ObjectMapperInterface {
       reject: (reason?: any) => void;
     }[]
   > = new Map();
+  private requestQueue: RequestQueue = new RequestQueue();
 
   constructor(db?: Level) {
     this.db = db || new Level(DEFAULT_DB_PATH, { valueEncoding: "json" });
@@ -57,14 +59,13 @@ class ObjectMapper implements ObjectMapperInterface {
       return await this.get(objectId);
     } catch {}
 
-    requestObject(objectId);
-
     const waitPromise = new Promise<ObjectMessage>((resolve) => {
       const existing = this.pendingFinds.get(objectId);
       if (existing) {
         existing.push({ resolve, reject: () => {} });
       } else {
         this.pendingFinds.set(objectId, [{ resolve, reject: () => {} }]);
+        this.requestQueue.add(objectId, requestObject);
       }
     });
 
@@ -78,4 +79,4 @@ class ObjectMapper implements ObjectMapperInterface {
     return Promise.race([waitPromise, timeoutPromise]);
   }
 }
-export default ObjectMapper;
+export default ObjectManager;

@@ -13,7 +13,7 @@ import type {
 import {
   validatePeers,
   validateOutpoints,
-  validateTransaction,
+  validateRegularTx,
   verifyLawOfConservation,
   verifySignatures,
 } from "./validator";
@@ -374,7 +374,7 @@ describe("verifyLawOfConservation", () => {
   });
 });
 
-describe("validateTransaction", () => {
+describe("validateRegularTx", () => {
   test("accepts coinbase transactions", async () => {
     const ctx = createContext({});
     const coinbase: TransactionMessage = {
@@ -383,7 +383,7 @@ describe("validateTransaction", () => {
       outputs: [{ pubkey: senderPubkeyHex, value: 50 }],
     };
 
-    expect(validateTransaction(coinbase, ctx)).resolves.toBe(true);
+    expect(validateRegularTx(coinbase, ctx)).resolves.toBe(true);
   });
 
   test("throws INVALID_FORMAT for non-coinbase transactions without inputs", async () => {
@@ -394,7 +394,7 @@ describe("validateTransaction", () => {
     } as TransactionMessage;
 
     await expectProtocolError(
-      validateTransaction(malformedTx, ctx),
+      validateRegularTx(malformedTx, ctx),
       ErrorCode.INVALID_FORMAT,
     );
   });
@@ -414,6 +414,6 @@ describe("validateTransaction", () => {
 
     tx.inputs![0]!.sig = await signTransaction(tx, senderPrivateKey);
 
-    expect(validateTransaction(tx, ctx)).resolves.toBe(true);
+    expect(validateRegularTx(tx, ctx)).resolves.toBe(true);
   });
 });

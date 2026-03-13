@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import ObjectMapper from "@/storage/objectMapper";
+import ObjectManager from "@/storage/objectManager";
 
 function createMapper() {
   const db = {
@@ -7,7 +7,7 @@ function createMapper() {
     has: async (_id: string) => false,
   } as any;
 
-  return new ObjectMapper(db);
+  return new ObjectManager(db);
 }
 
 const GENESIS_BLOCK = {
