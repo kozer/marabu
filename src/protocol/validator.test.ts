@@ -1,6 +1,8 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import canonicalize from "canonicalize";
 import * as ed from "@noble/ed25519";
+import { blake2s } from "@noble/hashes/blake2.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
 import ProtocolError from "@/protocol/error";
 import { ErrorCode, MessageType, ObjectType } from "@/protocol/types";
 import type {
@@ -11,10 +13,11 @@ import type {
   TransactionMessage,
 } from "./types";
 import {
+  getTxAmounts,
   validatePeers,
   validateOutpoints,
   validateRegularTx,
-  verifyLawOfConservation,
+  verifyLawOfConservationForRegularTx,
   verifySignatures,
 } from "./validator";
 
@@ -58,6 +61,15 @@ function toHex(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString("hex");
 }
 
+function hashTransaction(tx: TransactionMessage): string {
+  const canonical = canonicalize(tx);
+  if (!canonical) {
+    throw new Error("Failed to canonicalize transaction in hash helper");
+  }
+
+  return bytesToHex(blake2s(Buffer.from(canonical, "utf-8")));
+}
+
 async function signTransaction(
   tx: TransactionMessage,
   privateKey: Uint8Array,
@@ -94,6 +106,39 @@ async function expectProtocolError(
 let senderPrivateKey: Uint8Array;
 let senderPubkeyHex: string;
 let previousTxObject: ObjectMessage;
+
+const PSET2_COINBASE_ID =
+  "b303d841891f91af118a319f99f5984def51091166ac73c062c98f86ea7371ee";
+const PSET2_COINBASE: TransactionMessage = {
+  type: ObjectType.TRANSACTION,
+  height: 0,
+  outputs: [
+    {
+      pubkey:
+        "958f8add086cc348e229a3b6590c71b7d7754e42134a127a50648bf07969d9a0",
+      value: 50000000000,
+    },
+  ],
+};
+const PSET2_VALID_SPEND: TransactionMessage = {
+  type: ObjectType.TRANSACTION,
+  inputs: [
+    {
+      outpoint: {
+        index: 0,
+        txid: PSET2_COINBASE_ID,
+      },
+      sig: "060bf7cbe141fecfebf6dafbd6ebbcff25f82e729a7770f4f3b1f81a7ec8a0ce4b287597e609b822111bbe1a83d682ef14f018f8a9143cef25ecc9a8b0c1c405",
+    },
+  ],
+  outputs: [
+    {
+      pubkey:
+        "958f8add086cc348e229a3b6590c71b7d7754e42134a127a50648bf07969d9a0",
+      value: 10,
+    },
+  ],
+};
 
 beforeAll(async () => {
   senderPrivateKey = new Uint8Array(Buffer.from("01".repeat(32), "hex"));
@@ -346,8 +391,9 @@ describe("verifyLawOfConservation", () => {
       { pubkey: RECIPIENT_PUBKEY, value: 10 },
       { pubkey: senderPubkeyHex, value: 40 },
     ];
+    const txAmounts = getTxAmounts(resolvedInputs, newOutputs);
 
-    expect(verifyLawOfConservation(resolvedInputs, newOutputs)).toBe(true);
+    expect(verifyLawOfConservationForRegularTx(txAmounts)).toBe(true);
   });
 
   test("throws INVALID_TX_CONSERVATION when outputs exceed inputs", () => {
@@ -361,9 +407,10 @@ describe("verifyLawOfConservation", () => {
     const newOutputs: OutputTransactionMessage[] = [
       { pubkey: RECIPIENT_PUBKEY, value: 6 },
     ];
+    const txAmounts = getTxAmounts(resolvedInputs, newOutputs);
 
     try {
-      verifyLawOfConservation(resolvedInputs, newOutputs);
+      verifyLawOfConservationForRegularTx(txAmounts);
       throw new Error("Expected INVALID_TX_CONSERVATION");
     } catch (error) {
       expect(error).toBeInstanceOf(ProtocolError);
@@ -375,7 +422,7 @@ describe("verifyLawOfConservation", () => {
 });
 
 describe("validateRegularTx", () => {
-  test("accepts coinbase transactions", async () => {
+  test("throws INVALID_FORMAT for coinbase transactions", async () => {
     const ctx = createContext({});
     const coinbase: TransactionMessage = {
       type: ObjectType.TRANSACTION,
@@ -383,7 +430,10 @@ describe("validateRegularTx", () => {
       outputs: [{ pubkey: senderPubkeyHex, value: 50 }],
     };
 
-    expect(validateRegularTx(coinbase, ctx)).resolves.toBe(true);
+    await expectProtocolError(
+      validateRegularTx(coinbase, ctx),
+      ErrorCode.INVALID_FORMAT,
+    );
   });
 
   test("throws INVALID_FORMAT for non-coinbase transactions without inputs", async () => {
@@ -414,6 +464,38 @@ describe("validateRegularTx", () => {
 
     tx.inputs![0]!.sig = await signTransaction(tx, senderPrivateKey);
 
-    expect(validateRegularTx(tx, ctx)).resolves.toBe(true);
+    expect(!!(await validateRegularTx(tx, ctx))).toBe(true);
+  });
+
+  test("accepts PSET2 transaction example", async () => {
+    const ctx = createContext({
+      [PSET2_COINBASE_ID]: wrapObject(PSET2_COINBASE),
+    });
+
+    expect(!!(await validateRegularTx(PSET2_VALID_SPEND, ctx))).toBe(true);
+  });
+
+  test("rejects a tampered PSET2 signature", async () => {
+    const ctx = createContext({
+      [PSET2_COINBASE_ID]: wrapObject(PSET2_COINBASE),
+    });
+    const tamperedTx: TransactionMessage = {
+      ...PSET2_VALID_SPEND,
+      inputs: PSET2_VALID_SPEND.inputs!.map((input, index) => ({
+        ...input,
+        sig: index === 0 ? `1${input.sig!.slice(1)}` : input.sig,
+      })),
+    };
+
+    await expectProtocolError(
+      validateRegularTx(tamperedTx, ctx),
+      ErrorCode.INVALID_TX_SIGNATURE,
+    );
+  });
+});
+
+describe("PSET2 transaction vector", () => {
+  test("matches the documented PSET2 coinbase txid", () => {
+    expect(hashTransaction(PSET2_COINBASE)).toBe(PSET2_COINBASE_ID);
   });
 });

@@ -27,6 +27,8 @@ export const TARGET =
 export const GENESIS_BLOCK_ID =
   "00000000522473196b73bc619a8b18472c4cb4c6caf785a13fa32aaae7222ff6";
 
+//50* 10^12 picabu
+export const BLOCK_REWARD = 50 * 10 ** 12;
 export enum ErrorCode {
   // An error occurred within the node while processing the message.
   INTERNAL_ERROR = "INTERNAL_ERROR",
@@ -212,3 +214,15 @@ export enum ConnectionDirection {
   INBOUND = "inbound",
   OUTBOUND = "outbound",
 }
+
+export type RegularTxAmounts = {
+  inputValue: number;
+  outputValue: number;
+  fee: number;
+};
+export type RegularTxValidationResult = {
+  resolvedInputs: ResolvedInput[];
+  inputValue: number;
+  outputValue: number;
+  fee: number;
+};

@@ -5,6 +5,7 @@ import {
   ErrorCode,
   ObjectType,
   GENESIS_BLOCK_ID,
+  BLOCK_REWARD,
 } from "@/protocol/types";
 import ProtocolError from "@/protocol/error";
 import type {
@@ -17,15 +18,26 @@ import type {
   ValidMessage,
   ObjectMessage,
   BlockMessage,
+  RegularTxAmounts,
+  RegularTxValidationResult,
 } from "@/protocol/types";
 import { parsePeerAddress } from "@/shared/utils";
 
-export function isCoinbaseTx(tx: TransactionMessage): boolean {
-  return (
-    tx.height !== undefined &&
-    tx.inputs === undefined &&
-    tx.outputs.length === 1
-  );
+export function isCoinbaseCandidate(tx: TransactionMessage): boolean {
+  return tx.height !== undefined;
+}
+
+export function validateGenesisBlock(
+  block: BlockMessage,
+  ctx: ConnectedPeerContext,
+): boolean {
+  if (ctx.mapper.id(block) !== GENESIS_BLOCK_ID) {
+    throw new ProtocolError(
+      ErrorCode.INVALID_GENESIS,
+      `Genesis block has invalid ID ${ctx.mapper.id(block)}`,
+    );
+  }
+  return true;
 }
 
 export function validatePeers(
@@ -146,10 +158,30 @@ export async function verifySignatures(
   return true;
 }
 
-export function verifyLawOfConservation(
+export function verifyLawOfConservationForCoinbaseTx(
+  coinbaseTx: TransactionMessage,
+  txs: RegularTxValidationResult[],
+  _ctx: ConnectedPeerContext,
+): boolean {
+  const totalFees = txs.reduce((sum, tx) => sum + tx.fee, 0);
+  const coinbaseOutputValue = coinbaseTx.outputs.reduce(
+    (sum, output) => sum + output.value,
+    0,
+  );
+  const maxAllowedValue = BLOCK_REWARD + totalFees;
+  if (coinbaseOutputValue > maxAllowedValue) {
+    throw new ProtocolError(
+      ErrorCode.INVALID_BLOCK_COINBASE,
+      `Coinbase output value ${coinbaseOutputValue} exceeds allowed value ${maxAllowedValue}`,
+    );
+  }
+  return true;
+}
+
+export function getTxAmounts(
   resolvedInputs: ResolvedInput[],
   newOutputs: OutputTransactionMessage[],
-): boolean {
+): RegularTxAmounts {
   const totalInputValue = resolvedInputs.reduce(
     (sum, input) => sum + input.resolvedOutput.value,
     0,
@@ -158,11 +190,21 @@ export function verifyLawOfConservation(
     (sum, output) => sum + output.value,
     0,
   );
-  const isConserved = totalInputValue >= totalOutputValue;
+  return {
+    inputValue: totalInputValue,
+    outputValue: totalOutputValue,
+    fee: totalInputValue - totalOutputValue,
+  };
+}
+
+export function verifyLawOfConservationForRegularTx(
+  txAmounts: RegularTxAmounts,
+): boolean {
+  const isConserved = txAmounts.inputValue >= txAmounts.outputValue;
   if (!isConserved) {
     throw new ProtocolError(
       ErrorCode.INVALID_TX_CONSERVATION,
-      `Output value ${totalOutputValue} exceeds input value ${totalInputValue}`,
+      `Output value ${txAmounts.outputValue} exceeds input value ${txAmounts.inputValue}`,
     );
   }
   return isConserved;
@@ -171,16 +213,14 @@ export function verifyLawOfConservation(
 export async function validateRegularTx(
   tx: TransactionMessage,
   ctx: ConnectedPeerContext,
-): Promise<boolean> {
-  const isCoinbase = isCoinbaseTx(tx);
-  if (!isCoinbase) {
-    if (!tx.inputs || tx.inputs.length === 0) {
-      throw new ProtocolError(
-        ErrorCode.INVALID_FORMAT,
-        `Received transaction message with missing inputs`,
-      );
-    }
-    /*
+): Promise<RegularTxValidationResult> {
+  if (!tx.inputs || tx.inputs.length === 0) {
+    throw new ProtocolError(
+      ErrorCode.INVALID_FORMAT,
+      `Received transaction message with missing inputs`,
+    );
+  }
+  /*
 		 VERIFIED BY validateOutpoints function
      a) For each input, validate the outpoint. For this, ensure that a valid transaction with
      the given txid exists in your object database and that the given index is less than
@@ -200,21 +240,27 @@ export async function validateRegularTx(
      d) Transactions must respect the law of conservation, i.e. the sum of all input values
      is at least the sum of output values.
 		*/
-    const resolvedInputs = await validateOutpoints(tx.inputs, ctx);
-    return (
-      (await verifySignatures(tx, resolvedInputs)) &&
-      verifyLawOfConservation(resolvedInputs, tx.outputs)
-    );
-  }
-  // Coinbase transaction is always valid for now.
-  return true;
+  const resolvedInputs = await validateOutpoints(tx.inputs, ctx);
+  await verifySignatures(tx, resolvedInputs);
+  const txAmounts = getTxAmounts(resolvedInputs, tx.outputs);
+  verifyLawOfConservationForRegularTx(txAmounts);
+  return {
+    resolvedInputs,
+    ...txAmounts,
+  };
 }
 
 export function checkPOW(
   block: BlockMessage,
   ctx: ConnectedPeerContext,
 ): boolean {
-  return ctx.mapper.id(block).toLowerCase() < block.T.toLowerCase();
+  if (ctx.mapper.id(block).toLowerCase() >= block.T.toLowerCase()) {
+    throw new ProtocolError(
+      ErrorCode.INVALID_BLOCK_POW,
+      `Block ${ctx.mapper.id(block)} does not satisfy proof-of-work requirement (ID is greater than target)`,
+    );
+  }
+  return true;
 }
 
 export async function checkTxsInBlock(
@@ -222,7 +268,7 @@ export async function checkTxsInBlock(
   ctx: ConnectedPeerContext,
 ): Promise<TransactionMessage[]> {
   try {
-    const objs = await Promise.all(
+    const resolvedTxs = await Promise.all(
       block.txids.map((txid) =>
         ctx.mapper.findObject(txid, (id) =>
           ctx.peerManager.broadcast(
@@ -235,8 +281,9 @@ export async function checkTxsInBlock(
         ),
       ),
     );
-    return objs.map((obj) => {
+    return resolvedTxs.map((obj) => {
       if (obj.object.type !== ObjectType.TRANSACTION) {
+        // Should this happen?
         throw new Error(
           "Object with ID ${ctx.mapper.id(obj.object)} is not a transaction",
         );
@@ -251,20 +298,24 @@ export async function checkTxsInBlock(
   }
 }
 
-export function checkForCoinbaseTxs(
+export function checkForCoinbaseTxsInBlock(
   block: BlockMessage,
   blockTxs: TransactionMessage[],
   ctx: ConnectedPeerContext,
 ): boolean {
-  const coinbaseTxs = blockTxs.filter(isCoinbaseTx);
+  const coinbaseTxs = blockTxs.filter(isCoinbaseCandidate);
   if (coinbaseTxs.length > 1) {
-    throw new Error(`Block contains more than one coinbase transaction`);
+    throw new ProtocolError(
+      ErrorCode.INVALID_BLOCK_COINBASE,
+      `Block contains more than one coinbase transaction (found ${coinbaseTxs.length})`,
+    );
   }
   if (coinbaseTxs.length === 1) {
     const coinbaseTx = coinbaseTxs[0];
     if (ctx.mapper.id(coinbaseTx) !== block.txids[0]) {
-      throw new Error(
-        `Coinbase transaction is not at index 0 in txids (found at index ${block.txids.indexOf(ctx.mapper.id(coinbaseTx))})`,
+      throw new ProtocolError(
+        ErrorCode.INVALID_BLOCK_COINBASE,
+        `Coinbase transaction ID ${ctx.mapper.id(coinbaseTx)} does not match first txid in block ${block.txids[0]}`,
       );
     }
   }
@@ -273,21 +324,16 @@ export function checkForCoinbaseTxs(
 
 export function checkForCoinbaseSpending(
   blockTxs: TransactionMessage[],
-  ctx: ConnectedPeerContext,
+  coinbaseTxId: string,
+  _: ConnectedPeerContext,
 ): boolean {
-  const coinbaseTxs = blockTxs.filter(isCoinbaseTx);
-  if (coinbaseTxs.length === 0) {
-    return true;
-  }
-  // We have check for more than one coinbase transaction in checkForCoinbaseTxs, so we know there is exactly one if we are here.
-  const coinbaseTx = coinbaseTxs[0]!;
-  const coinbaseTxId = ctx.mapper.id(coinbaseTx);
   for (const tx of blockTxs) {
     if (tx.inputs) {
       for (const input of tx.inputs) {
         if (input.outpoint.txid === coinbaseTxId) {
-          throw new Error(
-            `Coinbase transaction ${coinbaseTxId} is spent by transaction ${ctx.mapper.id(tx)}`,
+          throw new ProtocolError(
+            ErrorCode.INVALID_TX_OUTPOINT,
+            `Coinbase transaction ${coinbaseTxId} cannot be spent within the same block`,
           );
         }
       }
@@ -295,11 +341,40 @@ export function checkForCoinbaseSpending(
   }
   return true;
 }
+
+const checkCoinbaseFormat = (
+  coinbaseTx: TransactionMessage,
+  _: ConnectedPeerContext,
+): boolean => {
+  if (coinbaseTx.inputs !== undefined) {
+    throw new ProtocolError(
+      ErrorCode.INVALID_FORMAT,
+      `Coinbase transaction should have no inputs`,
+    );
+  }
+
+  if (coinbaseTx.outputs.length !== 1) {
+    throw new ProtocolError(
+      ErrorCode.INVALID_FORMAT,
+      `Coinbase transaction should have exactly one output`,
+    );
+  }
+  if (coinbaseTx.height === undefined) {
+    throw new ProtocolError(
+      ErrorCode.INVALID_FORMAT,
+      `Coinbase transaction has invalid height ${coinbaseTx.height}`,
+    );
+  }
+  return true;
+};
 export async function validateBlock(
   block: BlockMessage,
   ctx: ConnectedPeerContext,
 ): Promise<boolean> {
   /*
+	    Check that if previd is null, then the block is the genesis block.
+			Protocol specifies that the genesis block has a specific id.
+
 			VERIFIED BY zod
 			a. Check that the block contains all required fields and that they are of the format specified
 			in [1]. Send back an INVALID_FORMAT error otherwise.
@@ -353,63 +428,65 @@ export async function validateBlock(
 			block in your local database and gossip the block. Here, “gossip” means that you send
 			an ihaveobject message with the corresponding blockid.
 */
-
-  if (block.previd === null) {
-    if (ctx.mapper.id(block) !== GENESIS_BLOCK_ID) {
-      throw new ProtocolError(
-        ErrorCode.INVALID_GENESIS,
-        `Genesis block has invalid ID ${ctx.mapper.id(block)}`,
-      );
-    }
-  }
-  const isvalidPOW = checkPOW(block, ctx);
-  if (!isvalidPOW) {
-    throw new ProtocolError(
-      ErrorCode.INVALID_BLOCK_POW,
-      `Block ${ctx.mapper.id(block)} does not satisfy proof-of-work requirement`,
-    );
-  }
-  const blockTxs = await checkTxsInBlock(block, ctx);
   try {
-    checkForCoinbaseTxs(block, blockTxs, ctx);
-  } catch (e) {
-    throw new ProtocolError(
-      ErrorCode.INVALID_BLOCK_COINBASE,
-      `Block ${ctx.mapper.id(block)} has invalid coinbase transaction: ${(e as Error).message}`,
-    );
-  }
-  try {
-    checkForCoinbaseSpending(blockTxs, ctx);
-  } catch (e) {
-    throw new ProtocolError(
-      ErrorCode.INVALID_TX_OUTPOINT,
-      `Block ${ctx.mapper.id(block)} has invalid coinbase transaction spending: ${(e as Error).message}`,
-    );
-  }
-  for (const tx of blockTxs) {
-    try {
-      await validateRegularTx(tx, ctx);
-    } catch (e) {
-      throw new ProtocolError(
-        ErrorCode.UNFINDABLE_OBJECT,
-        `Block ${ctx.mapper.id(block)} contains invalid transaction ${ctx.mapper.id(tx)}: ${(e as Error).message}`,
-      );
+    if (block.previd === null) {
+      validateGenesisBlock(block, ctx);
     }
-  }
-  //TODO: Implement the rest of the block validation rules (timestamp, coinbase transaction, etc.)
+    checkPOW(block, ctx);
+    const blockTxs = await checkTxsInBlock(block, ctx);
+    checkForCoinbaseTxsInBlock(block, blockTxs, ctx);
+    // We know at this point that there is at most one coinbase transaction, so we can just find it instead of filtering.
+    const coinbaseTx = blockTxs.find(isCoinbaseCandidate);
+    if (coinbaseTx) {
+      const coinbaseTxId = ctx.mapper.id(coinbaseTx);
+      checkForCoinbaseSpending(blockTxs, coinbaseTxId, ctx);
+      checkCoinbaseFormat(coinbaseTx, ctx);
+    }
 
-  return true;
+    const validatedTxs: RegularTxValidationResult[] = [];
+    for (const tx of blockTxs) {
+      try {
+        if (isCoinbaseCandidate(tx)) continue;
+        const result = await validateRegularTx(tx, ctx);
+        validatedTxs.push(result);
+      } catch (e) {
+        // Although validateRegular tx throws protocoleErrors, we catch those here and re-throw as UNFINDABLE_OBJECT,
+        // since if a transaction in a block is invalid, we want to consider the whole block invalid.
+        throw new ProtocolError(
+          ErrorCode.UNFINDABLE_OBJECT,
+          `Block ${ctx.mapper.id(block)} contains invalid transaction ${ctx.mapper.id(tx)}: ${(e as Error).message}`,
+        );
+      }
+    }
+
+    //We have verified the transactions in the block, so now we can use them to verify the law of conservation for the coinbase transaction if it exists.
+    if (coinbaseTx) {
+      verifyLawOfConservationForCoinbaseTx(coinbaseTx!, validatedTxs, ctx);
+    }
+    //TODO: Implement the rest of the block validation rules (timestamp, coinbase transaction, etc.)
+
+    return true;
+  } catch (e) {
+    if (e instanceof ProtocolError) {
+      throw e;
+    }
+    throw new Error(
+      `unexpected error during block validation: ${(e as Error).message}`,
+    );
+  }
 }
 export async function validateObject(
   message: ObjectMessage,
   ctx: ConnectedPeerContext,
 ): Promise<boolean> {
   if (message.object.type === ObjectType.BLOCK) {
+    //TODO: Uncomment after PSET 2 is graded.
     // return validateBlock(message.object, ctx);
     return true;
   }
   //We don't need to check for other types, as zod covers that.
-  return validateRegularTx(message.object, ctx);
+  if (isCoinbaseCandidate(message.object)) return true;
+  return !!(await validateRegularTx(message.object, ctx));
 }
 
 type GenericValidator = (
