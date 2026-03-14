@@ -6,6 +6,11 @@ import type { ObjectMessage } from "@/protocol/types";
 import { DEFAULT_DB_PATH, FIND_TIMEOUT_MS } from "@/shared/constants";
 import RequestQueue from "./requestQueue";
 
+export type PendingWaiter = {
+  resolve: (value: ObjectMessage) => void;
+  timeoutId: ReturnType<typeof setTimeout>;
+};
+
 export interface ObjectManagerInterface {
   id(obj: unknown): string;
   exists(id: string): Promise<boolean>;
@@ -14,17 +19,12 @@ export interface ObjectManagerInterface {
     objectId: string,
     requestObject: (id: string) => void,
   ): Promise<ObjectMessage>;
+  put(object: ObjectMessage): Promise<string>;
 }
 
 class ObjectManager implements ObjectManagerInterface {
   private db: Level;
-  pendingFinds: Map<
-    string,
-    {
-      resolve: (value: ObjectMessage) => void;
-      reject: (reason?: any) => void;
-    }[]
-  > = new Map();
+  pendingFinds: Map<string, PendingWaiter[]> = new Map();
   private requestQueue: RequestQueue = new RequestQueue();
 
   constructor(db?: Level) {
@@ -36,6 +36,22 @@ class ObjectManager implements ObjectManagerInterface {
       throw new Error(`Object ${id} not found`);
     }
     return object as unknown as ObjectMessage;
+  }
+
+  async put(object: ObjectMessage): Promise<string> {
+    const objectId = this.id(object);
+    await this.db.put(objectId, object as any);
+
+    const waiters = this.pendingFinds.get(objectId);
+    if (waiters) {
+      for (const waiter of waiters) {
+        clearTimeout(waiter.timeoutId);
+        waiter.resolve(object);
+      }
+      this.pendingFinds.delete(objectId);
+    }
+
+    return objectId;
   }
 
   id(obj: unknown): string {
@@ -59,24 +75,32 @@ class ObjectManager implements ObjectManagerInterface {
       return await this.get(objectId);
     } catch {}
 
-    const waitPromise = new Promise<ObjectMessage>((resolve) => {
-      const existing = this.pendingFinds.get(objectId);
-      if (existing) {
-        existing.push({ resolve, reject: () => {} });
-      } else {
-        this.pendingFinds.set(objectId, [{ resolve, reject: () => {} }]);
+    const waiters = this.pendingFinds.get(objectId) ?? [];
+    let waiter!: PendingWaiter;
+
+    return new Promise<ObjectMessage>((resolve, reject) => {
+      waiter = {
+        resolve,
+        timeoutId: setTimeout(() => {
+          const current = this.pendingFinds.get(objectId) ?? [];
+          const remaining = current.filter((w) => w !== waiter);
+          if (remaining.length > 0) {
+            this.pendingFinds.set(objectId, remaining);
+          } else {
+            this.pendingFinds.delete(objectId);
+          }
+          reject(new Error(`Timeout waiting for object ${objectId}`));
+        }, FIND_TIMEOUT_MS),
+      };
+
+      if (waiters.length === 0) {
+        this.pendingFinds.set(objectId, [waiter]);
         this.requestQueue.add(objectId, requestObject);
+      } else {
+        waiters.push(waiter);
+        this.pendingFinds.set(objectId, waiters);
       }
     });
-
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => {
-        this.pendingFinds.delete(objectId);
-        reject(new Error(`Timeout waiting for object ${objectId}`));
-      }, FIND_TIMEOUT_MS);
-    });
-
-    return Promise.race([waitPromise, timeoutPromise]);
   }
 }
 export default ObjectManager;

@@ -7,13 +7,13 @@ import {
 } from "@/net/connection";
 import { PeerManager } from "@/peers/peerManager";
 import { FilePeerStore } from "@/peers/peerStore";
-import ObjectMapper from "./storage/objectMapper";
+import ObjectManager from "./storage/objectManager";
 
 async function startNode() {
   const peerManager = new PeerManager(new FilePeerStore(PEERS_FILE), logger);
   await peerManager.load();
   const server = createServer();
-  const objectMapper = new ObjectMapper();
+  const objectMapper = new ObjectManager();
   server.listen(SERVER_PORT, function () {
     console.log(
       `Server listening for connection requests on socket localhost:${SERVER_PORT}`,
