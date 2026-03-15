@@ -4,13 +4,20 @@ import * as ed from "@noble/ed25519";
 import { blake2s } from "@noble/hashes/blake2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import ProtocolError from "@/protocol/error";
-import { ErrorCode, MessageType, ObjectType } from "@/protocol/types";
+import {
+  ErrorCode,
+  GENESIS_BLOCK_ID,
+  MessageType,
+  ObjectType,
+} from "@/protocol/types";
 import type {
+  BlockMessage,
   ConnectedPeerContext,
   InputTransactionMessage,
   ObjectMessage,
   OutputTransactionMessage,
   TransactionMessage,
+  UtxoSnapshot,
 } from "./types";
 import {
   getTxAmounts,
@@ -19,6 +26,7 @@ import {
   validateRegularTx,
   verifyLawOfConservationForRegularTx,
   verifySignatures,
+  validateBlock,
 } from "./validator";
 
 const PREV_TX_ID = "11".repeat(32);
@@ -42,41 +50,52 @@ function getTransactionObject(message: ObjectMessage): TransactionMessage {
   return message.object as TransactionMessage;
 }
 
-function createContext(
-  objects: Record<string, ObjectMessage>,
-): ConnectedPeerContext {
+function createContext(args: {
+  objects?: Record<string, ObjectMessage>;
+  blockTxs?: TransactionMessage[];
+  parentUtxo?: UtxoSnapshot | null;
+}): ConnectedPeerContext {
   return {
     id: "peer-1",
     socket: {} as any,
-    peerManager: {} as any,
+    peerManager: {
+      broadcast: () => {},
+    } as any,
     logger,
     objectManager: {
       put: async () => {},
-      get: async (key: string) => objects[key] ?? null,
+      get: async (key: string) => args.objects?.[key] ?? null,
+      id: (obj: unknown) => {
+        const typed = obj as { type?: string };
+        if (typed.type === ObjectType.BLOCK) {
+          return hash(obj as BlockMessage);
+        }
+        return hash(obj as TransactionMessage);
+      },
     } as any,
     blockManager: {
-      async getParentUtxo(_prevBlockId: string): Promise<any> {
-        return null;
+      async getParentUtxo(_prevBlockId: string | null): Promise<any> {
+        return args.parentUtxo ?? null;
       },
       async getBlock(_blockId: string): Promise<any> {
         return null;
       },
       async getBlockTransactions(_block: any, _ctx: any): Promise<any[]> {
-        return [];
+        return args.blockTxs ?? [];
       },
       async storeAccepted(_result: any): Promise<void> {
         return;
       },
     } as any,
-  };
+  } as ConnectedPeerContext;
 }
 
 function toHex(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString("hex");
 }
 
-function hashTransaction(tx: TransactionMessage): string {
-  const canonical = canonicalize(tx);
+function hash(obj: TransactionMessage | BlockMessage): string {
+  const canonical = canonicalize(obj);
   if (!canonical) {
     throw new Error("Failed to canonicalize transaction in hash helper");
   }
@@ -152,6 +171,30 @@ const PSET2_VALID_SPEND: TransactionMessage = {
       value: 10,
     },
   ],
+};
+
+const PSET3_BLOCK_TX_ID =
+  "69de2ed6155a71bd28d78ef418b60b3b239014337b85bc996b4389ab8d017bcf";
+
+const PSET3_BLOCK_TX: TransactionMessage = {
+  type: ObjectType.TRANSACTION,
+  height: 1,
+  outputs: [
+    {
+      pubkey:
+        "B6A95D7B410AE1EB924898AE584D21523B53AA5A78D1BC54ABE964FD8E63F487",
+      value: 50000000000000,
+    },
+  ],
+};
+const PSET3_VALID_BLOCK: BlockMessage = {
+  T: "00000000abc00000000000000000000000000000000000000000000000000000",
+  created: 1771488402,
+  miner: "kalaburi",
+  nonce: "32013974f028b6d2155088d5a2ec962130ea67d3f8f1d2cc6a55a02008c25b73",
+  previd: GENESIS_BLOCK_ID,
+  txids: [PSET3_BLOCK_TX_ID],
+  type: ObjectType.BLOCK,
 };
 
 beforeAll(async () => {
@@ -240,7 +283,9 @@ describe("validatePeers", () => {
 
 describe("validateOutpoints", () => {
   test("resolves known outpoints", async () => {
-    const ctx = createContext({ [PREV_TX_ID]: previousTxObject });
+    const ctx = createContext({
+      objects: { [PREV_TX_ID]: previousTxObject },
+    });
     const inputs: InputTransactionMessage[] = [
       {
         outpoint: { txid: PREV_TX_ID, index: 0 },
@@ -272,7 +317,7 @@ describe("validateOutpoints", () => {
   });
 
   test("throws INVALID_TX_OUTPOINT when index is too large", async () => {
-    const ctx = createContext({ [PREV_TX_ID]: previousTxObject });
+    const ctx = createContext({ objects: { [PREV_TX_ID]: previousTxObject } });
     const inputs: InputTransactionMessage[] = [
       {
         outpoint: { txid: PREV_TX_ID, index: 1 },
@@ -289,7 +334,7 @@ describe("validateOutpoints", () => {
   test("fetches each unique txid only once", async () => {
     let getObjectCalls = 0;
     const ctx = {
-      ...createContext({ [PREV_TX_ID]: previousTxObject }),
+      ...createContext({ objects: { [PREV_TX_ID]: previousTxObject } }),
       objectManager: {
         put: async () => {},
         get: async (key: string) => {
@@ -478,7 +523,7 @@ describe("validateRegularTx", () => {
   });
 
   test("accepts a valid signed non-coinbase transaction", async () => {
-    const ctx = createContext({ [PREV_TX_ID]: previousTxObject });
+    const ctx = createContext({ objects: { [PREV_TX_ID]: previousTxObject } });
     const tx: TransactionMessage = {
       type: ObjectType.TRANSACTION,
       inputs: [
@@ -497,7 +542,9 @@ describe("validateRegularTx", () => {
 
   test("accepts PSET2 transaction example", async () => {
     const ctx = createContext({
-      [PSET2_COINBASE_ID]: wrapObject(PSET2_COINBASE),
+      objects: {
+        [PSET2_COINBASE_ID]: wrapObject(PSET2_COINBASE),
+      },
     });
 
     expect(!!(await validateRegularTx(PSET2_VALID_SPEND, ctx))).toBe(true);
@@ -505,7 +552,9 @@ describe("validateRegularTx", () => {
 
   test("rejects a tampered PSET2 signature", async () => {
     const ctx = createContext({
-      [PSET2_COINBASE_ID]: wrapObject(PSET2_COINBASE),
+      objects: {
+        [PSET2_COINBASE_ID]: wrapObject(PSET2_COINBASE),
+      },
     });
     const tamperedTx: TransactionMessage = {
       ...PSET2_VALID_SPEND,
@@ -524,6 +573,33 @@ describe("validateRegularTx", () => {
 
 describe("PSET2 transaction vector", () => {
   test("matches the documented PSET2 coinbase txid", () => {
-    expect(hashTransaction(PSET2_COINBASE)).toBe(PSET2_COINBASE_ID);
+    expect(hash(PSET2_COINBASE)).toBe(PSET2_COINBASE_ID);
+  });
+});
+
+describe("validateBlock", () => {
+  test("returns null when parent UTXO is missing", async () => {
+    const ctx = createContext({
+      parentUtxo: null,
+      blockTxs: [PSET3_BLOCK_TX],
+    });
+    expect(validateBlock(PSET3_VALID_BLOCK, ctx)).resolves.toBeNull();
+  });
+  test("matches the documented PSET3 coinbase txid", () => {
+    expect(hash(PSET3_BLOCK_TX)).toBe(PSET3_BLOCK_TX_ID);
+  });
+  test("accepts the documented block mined on genesis", async () => {
+    const ctx = createContext({
+      parentUtxo: new Map(),
+      blockTxs: [PSET3_BLOCK_TX],
+    });
+    const result = await validateBlock(PSET3_VALID_BLOCK, ctx);
+    expect(result).not.toBeNull();
+    expect(result?.blockId).toBe(hash(PSET3_VALID_BLOCK));
+    expect(result?.utxoAfterBlock.get(`${PSET3_BLOCK_TX_ID}:0`)).toEqual({
+      txid: PSET3_BLOCK_TX_ID,
+      index: 0,
+      output: PSET3_BLOCK_TX.outputs[0]!,
+    });
   });
 });
