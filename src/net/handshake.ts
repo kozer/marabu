@@ -1,42 +1,26 @@
-import { Socket } from "net";
 import { MessageType, ErrorCode } from "@/protocol/types";
 import ProtocolError from "@/protocol/error";
 import { semver } from "bun";
-import { sendMessage } from "@/shared/utils";
 
 export interface ConnectionState {
   hasHandshaked: boolean;
 }
 
-export function checkHandshake(
-  message: any,
-  socket: Socket,
-  state: ConnectionState,
-): boolean {
+export function checkHandshake(message: any, state: ConnectionState): boolean {
   if (state.hasHandshaked) return true;
 
   if (message.type !== MessageType.HELLO) {
-    sendMessage(
-      socket,
-      new ProtocolError(
-        ErrorCode.INVALID_HANDSHAKE,
-        "Received message before handshake",
-      ),
+    throw new ProtocolError(
+      ErrorCode.INVALID_HANDSHAKE,
+      "First message must be a HELLO handshake",
     );
-    socket.end();
-    return false;
   }
 
   if (!semver.satisfies(message.version, "0.10.x")) {
-    sendMessage(
-      socket,
-      new ProtocolError(
-        ErrorCode.INVALID_FORMAT,
-        `Incompatible client version ${message.version}`,
-      ),
+    throw new ProtocolError(
+      ErrorCode.INVALID_FORMAT,
+      `Incompatible client version ${message.version}`,
     );
-    socket.end();
-    return false;
   }
 
   state.hasHandshaked = true;

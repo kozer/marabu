@@ -10,7 +10,9 @@ import { PeerConnection } from "@/net/peerConnection";
 
 export function handleInboundConnection(ctx: ConnectedPeerContext) {
   if (!ctx.peerManager.canAcceptInbound(ctx.id)) {
-    console.log(`Refusing connection from ${ctx.id}: Max peers reached or host is blacklisted.`);
+    ctx.logger.warn(
+      `Refusing connection from ${ctx.id}: Max peers reached or host is blacklisted.`,
+    );
     ctx.socket.destroy(); // Hang up immediately
     return;
   }

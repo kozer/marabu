@@ -50,7 +50,7 @@ function createContext(
     socket: {} as any,
     peerManager: {} as any,
     logger,
-    mapper: {
+    objectManager: {
       put: async () => {},
       get: async (key: string) => objects[key] ?? null,
     } as any,
@@ -276,7 +276,7 @@ describe("validateOutpoints", () => {
     let getObjectCalls = 0;
     const ctx = {
       ...createContext({ [PREV_TX_ID]: previousTxObject }),
-      mapper: {
+      objectManager: {
         put: async () => {},
         get: async (key: string) => {
           getObjectCalls += 1;

@@ -13,7 +13,7 @@ async function startNode() {
   const peerManager = new PeerManager(new FilePeerStore(PEERS_FILE), logger);
   await peerManager.load();
   const server = createServer();
-  const objectMapper = new ObjectManager();
+  const objectManager = new ObjectManager();
   server.listen(SERVER_PORT, function () {
     console.log(
       `Server listening for connection requests on socket localhost:${SERVER_PORT}`,
@@ -23,7 +23,7 @@ async function startNode() {
   const ctx = {
     peerManager,
     logger,
-    mapper: objectMapper,
+    objectManager,
   };
   server.on("connection", function (socket: Socket) {
     const id = `${socket.remoteAddress}:${socket.remotePort}`;

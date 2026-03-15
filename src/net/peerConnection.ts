@@ -94,6 +94,21 @@ export class PeerConnection {
       type: MessageType.GET_PEERS,
     });
   }
+  private onHandleError(error: Error): void {
+    this.ctx.logger.error({ err: error }, "Message handler failed");
+    if (error instanceof ProtocolError) {
+      this.send(error);
+    } else {
+      this.send(
+        new ProtocolError(
+          ErrorCode.INTERNAL_ERROR,
+          "An unexpected error occurred while processing the message.",
+        ),
+      );
+    }
+    this.ctx.socket.end();
+    return;
+  }
 
   private async handleData(chunk: string): Promise<void> {
     this.buffer += chunk;
@@ -105,44 +120,33 @@ export class PeerConnection {
         continue;
       }
 
-      const message = await parseMessage(rawMessage, this.ctx);
-      if (!message) {
-        return;
-      }
-
-      if (!checkHandshake(message, this.ctx.socket, this.state)) {
-        return;
-      }
-
-      const handler = messageHandlers[message.type];
-      if (!handler) {
-        this.ctx.logger.error(
-          `No handler found for message type: ${message.type}`,
-        );
-        continue;
-      }
-
+      let message: ValidMessage | null = null;
       try {
-        await handler(message, this.ctx);
-      } catch (error) {
-        this.ctx.logger.error(
-          { err: error, type: message.type },
-          "Message handler failed",
-        );
-        this.send(
-          new ProtocolError(
-            ErrorCode.INTERNAL_ERROR,
-            `Failed to handle ${message.type} message`,
-          ),
-        );
-        this.ctx.socket.end();
-        return;
-      }
+        message = await parseMessage(rawMessage, this.ctx);
+        if (!message) {
+          return;
+        }
 
-      this.ctx.logger.info(
-        { type: message.type },
-        `[${this.ctx.id}]: Received message`,
-      );
+        if (!checkHandshake(message, this.state)) {
+          return;
+        }
+
+        const handler = messageHandlers[message.type];
+        if (!handler) {
+          this.ctx.logger.error(
+            `No handler found for message type: ${message.type}`,
+          );
+          continue;
+        }
+
+        await handler(message, this.ctx);
+        this.ctx.logger.info(
+          { type: message.type },
+          `[${this.ctx.id}]: Received message`,
+        );
+      } catch (error) {
+        this.onHandleError(error as Error);
+      }
     }
   }
 }

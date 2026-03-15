@@ -203,7 +203,7 @@ export type ResolvedInput = z.infer<typeof InputTransactionSchema> & {
 export interface PeerContext {
   peerManager: PeerManager;
   logger: any;
-  mapper: ObjectManagerInterface;
+  objectManager: ObjectManagerInterface;
 }
 export type ConnectedPeerContext = PeerContext & {
   socket: Socket;

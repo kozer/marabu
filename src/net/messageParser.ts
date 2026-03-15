@@ -7,7 +7,6 @@ import {
   ErrorCode,
 } from "@/protocol/types";
 import { validateMessage } from "@/protocol/validator";
-import { sendMessage } from "@/shared/utils";
 
 export async function parseMessage(
   msg: string,
@@ -23,15 +22,10 @@ export async function parseMessage(
       ctx.id,
       `Invalid JSON message: ${(error as Error).message}`,
     );
-    sendMessage(
-      ctx.socket,
-      new ProtocolError(
-        ErrorCode.INVALID_FORMAT,
-        `Received message that is not valid JSON: ${error}`,
-      ),
+    throw new ProtocolError(
+      ErrorCode.INVALID_FORMAT,
+      `Received message that is not valid JSON: ${error}`,
     );
-    ctx.socket.end();
-    return null;
   }
 
   try {
@@ -44,19 +38,21 @@ export async function parseMessage(
       );
       if (tree.properties?.type?.errors?.includes("Invalid input")) {
         ctx.logger.error(`Message validation failed: Invalid message type`);
-        sendMessage(
-          ctx.socket,
-          new ProtocolError(
-            ErrorCode.INVALID_FORMAT,
-            `Received message with invalid type`,
-          ),
+        await ctx.peerManager.reportInvalidPeerMessage(
+          ctx.id,
+          "INVALID_MESSAGE_TYPE",
+        );
+
+        throw new ProtocolError(
+          ErrorCode.INVALID_FORMAT,
+          `Received message with invalid type`,
         );
       }
     }
     if (error instanceof ProtocolError) {
       ctx.logger.error(`Protocol validation failed: ${error.name}`);
       await ctx.peerManager.reportInvalidPeerMessage(ctx.id, error.name);
-      sendMessage(ctx.socket, error);
+      throw error;
     } else {
       ctx.logger.error({ err: error }, "Unknown protocol message");
       await ctx.peerManager.reportInvalidPeerMessage(
@@ -64,17 +60,11 @@ export async function parseMessage(
         "UNKNOWN_PROTOCOL_MESSAGE",
       );
 
-      sendMessage(
-        ctx.socket,
-        new ProtocolError(
-          ErrorCode.INVALID_FORMAT,
-          "Received message with invalid format",
-        ),
+      throw new ProtocolError(
+        ErrorCode.INVALID_FORMAT,
+        "Received message with unknown format",
       );
     }
-
-    ctx.socket.end();
-    return null;
   }
   return message;
 }

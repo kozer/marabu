@@ -8,6 +8,7 @@
     "husky": "^9.1.7"
   },
   "scripts": {
+    "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist && echo 'Done.'",
     "start": "bun run build && bun dist/index.js",
     "dev:server": "bun src/index.ts",

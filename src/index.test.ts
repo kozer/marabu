@@ -22,7 +22,7 @@ const logger = {
   warn: (..._args: any[]) => {},
 };
 
-const mapper = {
+const objectManager = {
   async put(_key: string, _value: any): Promise<void> {
     return;
   },
@@ -159,7 +159,7 @@ describe("Test node functionality", () => {
         socket,
         peerManager,
         logger,
-        mapper,
+        objectManager,
       };
       handleInboundConnection(ctx);
     });

@@ -31,10 +31,10 @@ export function validateGenesisBlock(
   block: BlockMessage,
   ctx: ConnectedPeerContext,
 ): boolean {
-  if (ctx.mapper.id(block) !== GENESIS_BLOCK_ID) {
+  if (ctx.objectManager.id(block) !== GENESIS_BLOCK_ID) {
     throw new ProtocolError(
       ErrorCode.INVALID_GENESIS,
-      `Genesis block has invalid ID ${ctx.mapper.id(block)}`,
+      `Genesis block has invalid ID ${ctx.objectManager.id(block)}`,
     );
   }
   return true;
@@ -63,7 +63,7 @@ export async function validateOutpoints(
     ...new Set(inputs!.map((input) => input.outpoint.txid)),
   ];
   const fetchedTxs = await Promise.all(
-    uniqueInputTxIds.map((txid) => ctx.mapper.get(txid)),
+    uniqueInputTxIds.map((txid) => ctx.objectManager.get(txid)),
   );
   const txCache = uniqueInputTxIds.reduce((txMap, txid, index) => {
     const foundObj = fetchedTxs[index];
@@ -254,10 +254,10 @@ export function checkPOW(
   block: BlockMessage,
   ctx: ConnectedPeerContext,
 ): boolean {
-  if (ctx.mapper.id(block).toLowerCase() >= block.T.toLowerCase()) {
+  if (ctx.objectManager.id(block).toLowerCase() >= block.T.toLowerCase()) {
     throw new ProtocolError(
       ErrorCode.INVALID_BLOCK_POW,
-      `Block ${ctx.mapper.id(block)} does not satisfy proof-of-work requirement (ID is greater than target)`,
+      `Block ${ctx.objectManager.id(block)} does not satisfy proof-of-work requirement (ID is greater than target)`,
     );
   }
   return true;
@@ -270,7 +270,7 @@ export async function checkTxsInBlock(
   try {
     const resolvedTxs = await Promise.all(
       block.txids.map((txid) =>
-        ctx.mapper.findObject(txid, (id) =>
+        ctx.objectManager.findObject(txid, (id) =>
           ctx.peerManager.broadcast(
             {
               type: MessageType.GET_OBJECT,
@@ -285,7 +285,7 @@ export async function checkTxsInBlock(
       if (obj.object.type !== ObjectType.TRANSACTION) {
         // Should this happen?
         throw new Error(
-          "Object with ID ${ctx.mapper.id(obj.object)} is not a transaction",
+          `Object with ID ${ctx.objectManager.id(obj.object)} is not a transaction`,
         );
       }
       return obj.object as TransactionMessage;
@@ -312,10 +312,10 @@ export function checkForCoinbaseTxsInBlock(
   }
   if (coinbaseTxs.length === 1) {
     const coinbaseTx = coinbaseTxs[0];
-    if (ctx.mapper.id(coinbaseTx) !== block.txids[0]) {
+    if (ctx.objectManager.id(coinbaseTx) !== block.txids[0]) {
       throw new ProtocolError(
         ErrorCode.INVALID_BLOCK_COINBASE,
-        `Coinbase transaction ID ${ctx.mapper.id(coinbaseTx)} does not match first txid in block ${block.txids[0]}`,
+        `Coinbase transaction ID ${ctx.objectManager.id(coinbaseTx)} does not match first txid in block ${block.txids[0]}`,
       );
     }
   }
@@ -438,7 +438,7 @@ export async function validateBlock(
     // We know at this point that there is at most one coinbase transaction, so we can just find it instead of filtering.
     const coinbaseTx = blockTxs.find(isCoinbaseCandidate);
     if (coinbaseTx) {
-      const coinbaseTxId = ctx.mapper.id(coinbaseTx);
+      const coinbaseTxId = ctx.objectManager.id(coinbaseTx);
       checkForCoinbaseSpending(blockTxs, coinbaseTxId, ctx);
       checkCoinbaseFormat(coinbaseTx, ctx);
     }
@@ -454,7 +454,7 @@ export async function validateBlock(
         // since if a transaction in a block is invalid, we want to consider the whole block invalid.
         throw new ProtocolError(
           ErrorCode.UNFINDABLE_OBJECT,
-          `Block ${ctx.mapper.id(block)} contains invalid transaction ${ctx.mapper.id(tx)}: ${(e as Error).message}`,
+          `Block ${ctx.objectManager.id(block)} contains invalid transaction ${ctx.objectManager.id(tx)}: ${(e as Error).message}`,
         );
       }
     }
