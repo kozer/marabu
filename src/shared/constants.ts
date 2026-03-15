@@ -1,5 +1,3 @@
-import { ObjectType, type BlockMessage } from "@/protocol/types";
-
 export const SEPARATOR = "\n";
 export const SERVER_PORT = 18018;
 const isProd = process.env.NODE_ENV === "production";

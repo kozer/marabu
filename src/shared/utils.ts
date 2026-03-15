@@ -89,3 +89,25 @@ export function normalizePeer(peer: string): string {
 
 export const delay = (ms: number) =>
   new Promise((resolve) => setTimeout(resolve, ms));
+
+export function PoW(
+  hashFunction: (nonce: string) => string,
+  k: number,
+): (target: string) => string {
+  // We need bits to be a multiple of 4 to ensure the nonce can be represented as a hex string
+  if (k % 4 !== 0) {
+    throw new Error("k must be a multiple of 4 for hex encoding");
+  }
+  return function (target: string): string {
+    const nonceHexLength = k / 4;
+    let ctr = 0;
+    while (true) {
+      const nonce = ctr.toString(16).padStart(nonceHexLength, "0");
+      const hash = hashFunction(nonce);
+      if (hash.toLowerCase() < target.toLowerCase()) {
+        return nonce;
+      }
+      ctr += 1;
+    }
+  };
+}
