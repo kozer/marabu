@@ -54,6 +54,20 @@ function createContext(
       put: async () => {},
       get: async (key: string) => objects[key] ?? null,
     } as any,
+    blockManager: {
+      async getParentUtxo(_prevBlockId: string): Promise<any> {
+        return null;
+      },
+      async getBlock(_blockId: string): Promise<any> {
+        return null;
+      },
+      async getBlockTransactions(_block: any, _ctx: any): Promise<any[]> {
+        return [];
+      },
+      async storeAccepted(_result: any): Promise<void> {
+        return;
+      },
+    } as any,
   };
 }
 
@@ -281,6 +295,20 @@ describe("validateOutpoints", () => {
         get: async (key: string) => {
           getObjectCalls += 1;
           return key === PREV_TX_ID ? previousTxObject : null;
+        },
+      } as any,
+      blockManager: {
+        async getParentUtxo(_prevBlockId: string): Promise<any> {
+          return null;
+        },
+        async getBlock(_blockId: string): Promise<any> {
+          return null;
+        },
+        async getBlockTransactions(_block: any, _ctx: any): Promise<any[]> {
+          return [];
+        },
+        async storeAccepted(_result: any): Promise<void> {
+          return;
         },
       } as any,
     } as ConnectedPeerContext;

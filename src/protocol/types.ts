@@ -2,6 +2,7 @@ import z from "zod";
 import { Socket } from "net";
 import type { PeerManager } from "@/peers/peerManager";
 import type { ObjectManagerInterface } from "@/storage/objectManager";
+import type { BlockManagerInterface } from "@/storage/BlockManager";
 
 export enum MessageType {
   HELLO = "hello",
@@ -204,6 +205,7 @@ export interface PeerContext {
   peerManager: PeerManager;
   logger: any;
   objectManager: ObjectManagerInterface;
+  blockManager: BlockManagerInterface;
 }
 export type ConnectedPeerContext = PeerContext & {
   socket: Socket;
@@ -225,4 +227,22 @@ export type RegularTxValidationResult = {
   inputValue: number;
   outputValue: number;
   fee: number;
+};
+
+export type UtxoKey = `${string}:${number}`;
+
+export type UtxoEntry = {
+  txid: string;
+  index: number;
+  output: OutputTransactionMessage;
+};
+
+export type UtxoSnapshot = Map<UtxoKey, UtxoEntry>;
+export type UtxoRows = UtxoEntry[];
+
+export type ValidatedBlock = {
+  blockId: string;
+  block: BlockMessage;
+  height: number;
+  utxoAfterBlock: UtxoSnapshot;
 };

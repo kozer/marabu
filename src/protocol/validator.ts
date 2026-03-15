@@ -210,6 +210,20 @@ export function verifyLawOfConservationForRegularTx(
   return isConserved;
 }
 
+export function checkDuplicateInputs(inputs: InputTransactionMessage[]): void {
+  const seen = new Set<string>();
+  for (const input of inputs) {
+    const key = `${input.outpoint.txid}:${input.outpoint.index}`;
+    if (seen.has(key)) {
+      throw new ProtocolError(
+        ErrorCode.INVALID_TX_OUTPOINT,
+        `Transaction contains duplicate input ${key}`,
+      );
+    }
+    seen.add(key);
+  }
+}
+
 export async function validateRegularTx(
   tx: TransactionMessage,
   ctx: ConnectedPeerContext,
@@ -239,11 +253,15 @@ export async function validateRegularTx(
      VERIFIED BY verifyLawOfConservation function
      d) Transactions must respect the law of conservation, i.e. the sum of all input values
      is at least the sum of output values.
+
+     VERIFIED BY checkDuplicateInputs function
+		 e) Check duplicate inputs ( Asked in PSET 3 )
 		*/
   const resolvedInputs = await validateOutpoints(tx.inputs, ctx);
   await verifySignatures(tx, resolvedInputs);
   const txAmounts = getTxAmounts(resolvedInputs, tx.outputs);
   verifyLawOfConservationForRegularTx(txAmounts);
+  checkDuplicateInputs(tx.inputs);
   return {
     resolvedInputs,
     ...txAmounts,
@@ -261,41 +279,6 @@ export function checkPOW(
     );
   }
   return true;
-}
-
-export async function checkTxsInBlock(
-  block: BlockMessage,
-  ctx: ConnectedPeerContext,
-): Promise<TransactionMessage[]> {
-  try {
-    const resolvedTxs = await Promise.all(
-      block.txids.map((txid) =>
-        ctx.objectManager.findObject(txid, (id) =>
-          ctx.peerManager.broadcast(
-            {
-              type: MessageType.GET_OBJECT,
-              objectid: id,
-            },
-            ctx.id,
-          ),
-        ),
-      ),
-    );
-    return resolvedTxs.map((obj) => {
-      if (obj.object.type !== ObjectType.TRANSACTION) {
-        // Should this happen?
-        throw new Error(
-          `Object with ID ${ctx.objectManager.id(obj.object)} is not a transaction`,
-        );
-      }
-      return obj.object as TransactionMessage;
-    });
-  } catch (e) {
-    throw new ProtocolError(
-      ErrorCode.UNFINDABLE_OBJECT,
-      `Failed to find transaction in block: ${(e as Error).message}`,
-    );
-  }
 }
 
 export function checkForCoinbaseTxsInBlock(
@@ -388,7 +371,7 @@ export async function validateBlock(
 			VERIFIED BY checkPOW
 			c. Check the proof-of-work. If not satisfied, send back an INVALID_BLOCK_POW error.
 
-			VERIFIED BY checkTxsInBlock
+			VERIFIED BY ctx.blockManager.getBlockTransactions
 			d. Check that for all the txids in the block, you have the corresponding transaction in your
 			local object database. If not, then send a "getobject" message to your peers in order
 			to get the transaction. If you still cannot find the transaction and none of your peers
@@ -433,7 +416,7 @@ export async function validateBlock(
       validateGenesisBlock(block, ctx);
     }
     checkPOW(block, ctx);
-    const blockTxs = await checkTxsInBlock(block, ctx);
+    const blockTxs = await ctx.blockManager.getBlockTransactions(block, ctx);
     checkForCoinbaseTxsInBlock(block, blockTxs, ctx);
     // We know at this point that there is at most one coinbase transaction, so we can just find it instead of filtering.
     const coinbaseTx = blockTxs.find(isCoinbaseCandidate);

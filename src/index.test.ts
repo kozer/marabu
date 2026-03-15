@@ -31,6 +31,21 @@ const objectManager = {
   },
 } as any;
 
+const blockManager = {
+  async getParentUtxo(_prevBlockId: string): Promise<any> {
+    return null;
+  },
+  async getBlock(_blockId: string): Promise<any> {
+    return null;
+  },
+  async getBlockTransactions(_block: any, _ctx: any): Promise<any[]> {
+    return [];
+  },
+  async storeAccepted(_result: any): Promise<void> {
+    return;
+  },
+} as any;
+
 const TEST_PORT = 18018;
 
 function connectToNode(port: number = TEST_PORT): Promise<Socket> {
@@ -160,6 +175,7 @@ describe("Test node functionality", () => {
         peerManager,
         logger,
         objectManager,
+        blockManager,
       };
       handleInboundConnection(ctx);
     });

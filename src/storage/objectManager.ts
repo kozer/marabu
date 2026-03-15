@@ -23,12 +23,13 @@ export interface ObjectManagerInterface {
 }
 
 class ObjectManager implements ObjectManagerInterface {
-  private db: Level;
+  private readonly db: Level;
   pendingFinds: Map<string, PendingWaiter[]> = new Map();
   private requestQueue: RequestQueue = new RequestQueue();
 
   constructor(db?: Level) {
-    this.db = db || new Level(DEFAULT_DB_PATH, { valueEncoding: "json" });
+    this.db =
+      db || new Level(`${DEFAULT_DB_PATH}/objects`, { valueEncoding: "json" });
   }
   async get(id: string): Promise<ObjectMessage> {
     const object = await this.db.get(id);
