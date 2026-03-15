@@ -28,6 +28,18 @@ export const TARGET =
 export const GENESIS_BLOCK_ID =
   "00000000522473196b73bc619a8b18472c4cb4c6caf785a13fa32aaae7222ff6";
 
+// TODO: Use it to seed database for PSET 3, to have a block to start from. Remove in PSET 4, and restore to objectManager.test.ts for testing purposes.
+export const GENESIS_BLOCK: BlockMessage = {
+  T: TARGET,
+  created: 1771159355,
+  miner: "Marabu",
+  nonce: "00dd82159556175752d9ba7349df67bddd237b59183747383f7b720e85c32347",
+  note: "Financial Times 2026-02-13: Crypto's battle with the banks is splitting Trump's base",
+  previd: null,
+  txids: [],
+  type: ObjectType.BLOCK,
+};
+
 //50* 10^12 picabu
 export const BLOCK_REWARD = 50 * 10 ** 12;
 export enum ErrorCode {
@@ -243,6 +255,5 @@ export type UtxoRows = UtxoEntry[];
 export type ValidatedBlock = {
   blockId: string;
   block: BlockMessage;
-  height: number;
   utxoAfterBlock: UtxoSnapshot;
 };

@@ -33,6 +33,9 @@ class UtxoStore implements UtxoStoreInterface {
   async getAfterBlock(blockId: string): Promise<UtxoSnapshot | null> {
     try {
       const rows = (await this.db.get(blockId)) as UtxoRows;
+      if (rows === undefined) {
+        return null;
+      }
       return new Map(
         rows.map((entry) => [this.key(entry.txid, entry.index), entry]),
       );

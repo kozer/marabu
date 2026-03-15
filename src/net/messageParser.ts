@@ -6,7 +6,6 @@ import {
   type ValidMessage,
   ErrorCode,
 } from "@/protocol/types";
-import { validateMessage } from "@/protocol/validator";
 
 export async function parseMessage(
   msg: string,
@@ -30,7 +29,6 @@ export async function parseMessage(
 
   try {
     message = MessageSchema.parse(message);
-    await validateMessage(message, ctx);
   } catch (error) {
     if (error instanceof z.ZodError) {
       const tree = z.treeifyError<ValidMessage>(

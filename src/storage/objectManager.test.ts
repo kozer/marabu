@@ -1,8 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import ObjectManager from "@/storage/objectManager";
-import { MessageType, ObjectType } from "@/protocol/types";
+import {
+  GENESIS_BLOCK,
+  GENESIS_BLOCK_ID,
+  MessageType,
+  ObjectType,
+  TARGET,
+} from "@/protocol/types";
 import type { ObjectMessage } from "@/protocol/types";
-
 function createObject(pubkey: string, value: number): ObjectMessage {
   return {
     type: MessageType.OBJECT,
@@ -73,30 +78,15 @@ function installTimerMocks() {
   };
 }
 
-const GENESIS_BLOCK = {
-  T: "00000000abc00000000000000000000000000000000000000000000000000000",
-  created: 1771159355,
-  miner: "Marabu",
-  nonce: "00dd82159556175752d9ba7349df67bddd237b59183747383f7b720e85c32347",
-  note: "Financial Times 2026-02-13: Crypto's battle with the banks is splitting Trump's base",
-  previd: null,
-  txids: [],
-  type: "block",
-};
-
 describe("ObjectManager", () => {
   test("computes the expected BLAKE2s id for the genesis block", () => {
     const manager = createManager().manager;
 
-    expect(manager.id(GENESIS_BLOCK)).toBe(
-      "00000000522473196b73bc619a8b18472c4cb4c6caf785a13fa32aaae7222ff6",
-    );
+    expect(manager.id(GENESIS_BLOCK)).toBe(GENESIS_BLOCK_ID);
   });
 
   test("preserves the expected genesis target field", () => {
-    expect(GENESIS_BLOCK.T).toBe(
-      "00000000abc00000000000000000000000000000000000000000000000000000",
-    );
+    expect(GENESIS_BLOCK.T).toBe(TARGET);
   });
 
   test("produces the same id regardless of object key order", () => {

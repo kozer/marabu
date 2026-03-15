@@ -14,6 +14,7 @@ import type {
   GetObjectMessage,
   ObjectMessage,
 } from "@/protocol/types";
+import { validatePeers } from "@/protocol/validator";
 import { sendMessage } from "@/shared/utils";
 
 export const helloHandler = async (message: HelloMessage) => {
@@ -41,6 +42,7 @@ export const peersHandler = async (
   message: PeersMessage,
   ctx: ConnectedPeerContext,
 ) => {
+  validatePeers(message, ctx);
   const newPeers = [];
   for (const peer of message.peers) {
     const normalizedPeer = peer.trim();

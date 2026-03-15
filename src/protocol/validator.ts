@@ -1,7 +1,6 @@
 import canonicalize from "canonicalize";
 import * as ed from "@noble/ed25519";
 import {
-  MessageType,
   ErrorCode,
   ObjectType,
   GENESIS_BLOCK_ID,
@@ -15,13 +14,27 @@ import type {
   PeersMessage,
   ResolvedInput,
   TransactionMessage,
-  ValidMessage,
-  ObjectMessage,
   BlockMessage,
   RegularTxAmounts,
   RegularTxValidationResult,
+  UtxoSnapshot,
+  ValidatedBlock,
 } from "@/protocol/types";
 import { parsePeerAddress } from "@/shared/utils";
+export function validatePeers(
+  message: PeersMessage,
+  _ctx: ConnectedPeerContext,
+): boolean {
+  for (const peer of message.peers) {
+    if (!parsePeerAddress(peer)) {
+      throw new ProtocolError(
+        ErrorCode.INVALID_FORMAT,
+        "Received message with invalid format",
+      );
+    }
+  }
+  return true;
+}
 
 export function isCoinbaseCandidate(tx: TransactionMessage): boolean {
   return tx.height !== undefined;
@@ -40,31 +53,24 @@ export function validateGenesisBlock(
   return true;
 }
 
-export function validatePeers(
-  message: PeersMessage,
-  _ctx: ConnectedPeerContext,
-): boolean {
-  for (const peer of message.peers) {
-    if (!parsePeerAddress(peer)) {
-      throw new ProtocolError(
-        ErrorCode.INVALID_FORMAT,
-        "Received message with invalid format",
-      );
-    }
-  }
-  return true;
-}
-
 export async function validateOutpoints(
   inputs: InputTransactionMessage[],
   ctx: ConnectedPeerContext,
 ): Promise<ResolvedInput[]> {
   const uniqueInputTxIds = [
-    ...new Set(inputs!.map((input) => input.outpoint.txid)),
+    ...new Set(inputs.map((input) => input.outpoint.txid)),
   ];
-  const fetchedTxs = await Promise.all(
-    uniqueInputTxIds.map((txid) => ctx.objectManager.get(txid)),
-  );
+  let fetchedTxs;
+  try {
+    fetchedTxs = await Promise.all(
+      uniqueInputTxIds.map((txid) => ctx.objectManager.get(txid)),
+    );
+  } catch {
+    throw new ProtocolError(
+      ErrorCode.UNKNOWN_OBJECT,
+      "Cannot find one or more previous transactions",
+    );
+  }
   const txCache = uniqueInputTxIds.reduce((txMap, txid, index) => {
     const foundObj = fetchedTxs[index];
 
@@ -76,7 +82,7 @@ export async function validateOutpoints(
   }, new Map<string, TransactionMessage>());
 
   const resolvedOutputs: ResolvedInput[] = [];
-  for (const input of inputs!) {
+  for (const input of inputs) {
     const prevTx = txCache.get(input.outpoint.txid);
 
     if (!prevTx) {
@@ -178,6 +184,19 @@ export function verifyLawOfConservationForCoinbaseTx(
   return true;
 }
 
+export function verifyLawOfConservationForRegularTx(
+  txAmounts: RegularTxAmounts,
+): boolean {
+  const isConserved = txAmounts.inputValue >= txAmounts.outputValue;
+  if (!isConserved) {
+    throw new ProtocolError(
+      ErrorCode.INVALID_TX_CONSERVATION,
+      `Output value ${txAmounts.outputValue} exceeds input value ${txAmounts.inputValue}`,
+    );
+  }
+  return isConserved;
+}
+
 export function getTxAmounts(
   resolvedInputs: ResolvedInput[],
   newOutputs: OutputTransactionMessage[],
@@ -195,19 +214,6 @@ export function getTxAmounts(
     outputValue: totalOutputValue,
     fee: totalInputValue - totalOutputValue,
   };
-}
-
-export function verifyLawOfConservationForRegularTx(
-  txAmounts: RegularTxAmounts,
-): boolean {
-  const isConserved = txAmounts.inputValue >= txAmounts.outputValue;
-  if (!isConserved) {
-    throw new ProtocolError(
-      ErrorCode.INVALID_TX_CONSERVATION,
-      `Output value ${txAmounts.outputValue} exceeds input value ${txAmounts.inputValue}`,
-    );
-  }
-  return isConserved;
 }
 
 export function checkDuplicateInputs(inputs: InputTransactionMessage[]): void {
@@ -258,10 +264,10 @@ export async function validateRegularTx(
 		 e) Check duplicate inputs ( Asked in PSET 3 )
 		*/
   const resolvedInputs = await validateOutpoints(tx.inputs, ctx);
+  checkDuplicateInputs(tx.inputs);
   await verifySignatures(tx, resolvedInputs);
   const txAmounts = getTxAmounts(resolvedInputs, tx.outputs);
   verifyLawOfConservationForRegularTx(txAmounts);
-  checkDuplicateInputs(tx.inputs);
   return {
     resolvedInputs,
     ...txAmounts,
@@ -350,10 +356,46 @@ const checkCoinbaseFormat = (
   }
   return true;
 };
+
+export function applyTransactionToUtxo(
+  tx: TransactionMessage,
+  utxoSet: UtxoSnapshot,
+  ctx: ConnectedPeerContext,
+): void {
+  // Remove spent outputs from UTXO set. We check for inputs (?? []) to cover coinbase txs as well.
+  for (const input of tx.inputs ?? []) {
+    const key = `${input.outpoint.txid}:${input.outpoint.index}` as const;
+    utxoSet.delete(key);
+  }
+  const txId = ctx.objectManager.id(tx);
+  tx.outputs.forEach((output, index) => {
+    const key = `${txId}:${index}` as const;
+    utxoSet.set(key, {
+      txid: txId,
+      index,
+      output,
+    });
+  });
+}
+
+export function ensureInputsPresentInUtxo(
+  resolvedInputs: ResolvedInput[],
+  utxoSet: UtxoSnapshot,
+): void {
+  for (const input of resolvedInputs) {
+    const key = `${input.outpoint.txid}:${input.outpoint.index}` as const;
+    if (!utxoSet.has(key)) {
+      throw new ProtocolError(
+        ErrorCode.INVALID_TX_OUTPOINT,
+        `UTXO ${key} not found`,
+      );
+    }
+  }
+}
 export async function validateBlock(
   block: BlockMessage,
   ctx: ConnectedPeerContext,
-): Promise<boolean> {
+): Promise<ValidatedBlock | null> {
   /*
 	    Check that if previd is null, then the block is the genesis block.
 			Protocol specifies that the genesis block has a specific id.
@@ -416,6 +458,14 @@ export async function validateBlock(
       validateGenesisBlock(block, ctx);
     }
     checkPOW(block, ctx);
+    //In case of not having the parent block, db will return null, and for PSET3, we will simply ignore the block.
+    const parentUtxo = await ctx.blockManager.getParentUtxo(block.previd);
+    if (!parentUtxo) {
+      return null;
+    }
+    // We create a copy
+    const utxoSet = new Map(parentUtxo);
+
     const blockTxs = await ctx.blockManager.getBlockTransactions(block, ctx);
     checkForCoinbaseTxsInBlock(block, blockTxs, ctx);
     // We know at this point that there is at most one coinbase transaction, so we can just find it instead of filtering.
@@ -428,10 +478,10 @@ export async function validateBlock(
 
     const validatedTxs: RegularTxValidationResult[] = [];
     for (const tx of blockTxs) {
+      if (isCoinbaseCandidate(tx)) continue;
+      let result: RegularTxValidationResult;
       try {
-        if (isCoinbaseCandidate(tx)) continue;
-        const result = await validateRegularTx(tx, ctx);
-        validatedTxs.push(result);
+        result = await validateRegularTx(tx, ctx);
       } catch (e) {
         // Although validateRegular tx throws protocoleErrors, we catch those here and re-throw as UNFINDABLE_OBJECT,
         // since if a transaction in a block is invalid, we want to consider the whole block invalid.
@@ -440,15 +490,33 @@ export async function validateBlock(
           `Block ${ctx.objectManager.id(block)} contains invalid transaction ${ctx.objectManager.id(tx)}: ${(e as Error).message}`,
         );
       }
+
+      try {
+        ensureInputsPresentInUtxo(result.resolvedInputs, utxoSet);
+        applyTransactionToUtxo(tx, utxoSet, ctx);
+      } catch (e) {
+        if (e instanceof ProtocolError) {
+          throw e;
+        }
+        //This should never happen.
+        throw new Error(
+          `unexpected error while updating UTXO for transaction ${ctx.objectManager.id(tx)}: ${(e as Error).message}`,
+        );
+      }
+      validatedTxs.push(result);
     }
 
     //We have verified the transactions in the block, so now we can use them to verify the law of conservation for the coinbase transaction if it exists.
     if (coinbaseTx) {
       verifyLawOfConservationForCoinbaseTx(coinbaseTx!, validatedTxs, ctx);
+      applyTransactionToUtxo(coinbaseTx, utxoSet, ctx);
     }
-    //TODO: Implement the rest of the block validation rules (timestamp, coinbase transaction, etc.)
 
-    return true;
+    return {
+      utxoAfterBlock: utxoSet,
+      blockId: ctx.objectManager.id(block),
+      block,
+    };
   } catch (e) {
     if (e instanceof ProtocolError) {
       throw e;
@@ -458,41 +526,3 @@ export async function validateBlock(
     );
   }
 }
-export async function validateObject(
-  message: ObjectMessage,
-  ctx: ConnectedPeerContext,
-): Promise<boolean> {
-  if (message.object.type === ObjectType.BLOCK) {
-    //TODO: Uncomment after PSET 2 is graded.
-    // return validateBlock(message.object, ctx);
-    return true;
-  }
-  //We don't need to check for other types, as zod covers that.
-  if (isCoinbaseCandidate(message.object)) return true;
-  return !!(await validateRegularTx(message.object, ctx));
-}
-
-type GenericValidator = (
-  message: ValidMessage,
-  ctx: ConnectedPeerContext,
-) => Promise<void>;
-
-export const validatorHandlers: Partial<
-  Record<
-    MessageType,
-    (message: ValidMessage, ctx: ConnectedPeerContext) => Promise<void>
-  >
-> = {
-  [MessageType.PEERS]: validatePeers as unknown as GenericValidator,
-  [MessageType.OBJECT]: validateObject as unknown as GenericValidator,
-};
-
-export const validateMessage = async (
-  message: ValidMessage,
-  ctx: ConnectedPeerContext,
-): Promise<void> => {
-  const validator = validatorHandlers[message.type];
-  if (validator) {
-    return await validator(message, ctx);
-  }
-};

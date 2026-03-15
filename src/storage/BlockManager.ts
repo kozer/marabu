@@ -14,7 +14,7 @@ import type UtxoStore from "./UtxoStore";
 import ProtocolError from "@/protocol/error";
 
 export interface BlockManagerInterface {
-  getParentUtxo(prevBlockId: string): Promise<UtxoSnapshot | null>;
+  getParentUtxo(prevBlockId: string | null): Promise<UtxoSnapshot | null>;
   getBlock(blockId: string): Promise<BlockMessage | null>;
   getBlockTransactions(
     block: BlockMessage,
@@ -28,7 +28,9 @@ class BlockManager implements BlockManagerInterface {
     private readonly objectManager: ObjectManagerInterface,
     private readonly utxoStore: UtxoStore,
   ) {}
-  async getParentUtxo(prevBlockId: string): Promise<UtxoSnapshot | null> {
+  async getParentUtxo(
+    prevBlockId: string | null,
+  ): Promise<UtxoSnapshot | null> {
     if (prevBlockId === null) {
       // This  is genesis, and the block after that is empty
       return this.utxoStore.empty();
@@ -86,6 +88,21 @@ class BlockManager implements BlockManagerInterface {
       object: result.block,
     } as ObjectMessage);
     await this.utxoStore.putAfterBlock(result.blockId, result.utxoAfterBlock);
+  }
+
+  async seedGenesis(genBlock: any, genesisId: any): Promise<void> {
+    const genesisBlock: ObjectMessage = {
+      type: MessageType.OBJECT,
+      object: genBlock,
+    };
+    if (
+      !(await this.objectManager.exists(this.objectManager.id(genesisBlock)))
+    ) {
+      await this.objectManager.put(genesisBlock);
+    }
+    if (!(await this.utxoStore.hasAfterBlock(genesisId))) {
+      await this.utxoStore.putAfterBlock(genesisId, this.utxoStore.empty());
+    }
   }
 }
 export default BlockManager;

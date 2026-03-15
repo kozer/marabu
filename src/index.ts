@@ -10,6 +10,7 @@ import { FilePeerStore } from "@/peers/peerStore";
 import ObjectManager from "./storage/objectManager";
 import UtxoStore from "./storage/UtxoStore";
 import BlockManager from "./storage/BlockManager";
+import { GENESIS_BLOCK, GENESIS_BLOCK_ID } from "./protocol/types";
 
 async function startNode() {
   const peerManager = new PeerManager(new FilePeerStore(PEERS_FILE), logger);
@@ -18,6 +19,8 @@ async function startNode() {
   const objectManager = new ObjectManager();
   const utxoStore = new UtxoStore();
   const blockManager = new BlockManager(objectManager, utxoStore);
+  // TODO: Remove after PSET 3.
+  await blockManager.seedGenesis(GENESIS_BLOCK, GENESIS_BLOCK_ID);
   server.listen(SERVER_PORT, function () {
     console.log(
       `Server listening for connection requests on socket localhost:${SERVER_PORT}`,
