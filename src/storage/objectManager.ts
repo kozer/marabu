@@ -2,24 +2,24 @@ import canonicalize from "canonicalize";
 import { blake2s } from "@noble/hashes/blake2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { Level } from "level";
-import type { ObjectMessage } from "@/protocol/types";
+import type { ObjectData, ObjectMessage } from "@/protocol/types";
 import { DEFAULT_DB_PATH, FIND_TIMEOUT_MS } from "@/shared/constants";
 import RequestQueue from "./requestQueue";
 
 export type PendingWaiter = {
-  resolve: (value: ObjectMessage) => void;
+  resolve: (value: ObjectData) => void;
   timeoutId: ReturnType<typeof setTimeout>;
 };
 
 export interface ObjectManagerInterface {
   id(obj: unknown): string;
   exists(id: string): Promise<boolean>;
-  get(id: string): Promise<ObjectMessage>;
+  get(id: string): Promise<ObjectData>;
   findObject(
     objectId: string,
     requestObject: (id: string) => void,
-  ): Promise<ObjectMessage>;
-  put(object: ObjectMessage): Promise<string>;
+  ): Promise<ObjectData>;
+  put(object: ObjectData): Promise<string>;
 }
 
 class ObjectManager implements ObjectManagerInterface {
@@ -31,15 +31,15 @@ class ObjectManager implements ObjectManagerInterface {
     this.db =
       db || new Level(`${DEFAULT_DB_PATH}/objects`, { valueEncoding: "json" });
   }
-  async get(id: string): Promise<ObjectMessage> {
+  async get(id: string): Promise<ObjectData> {
     const object = await this.db.get(id);
     if (object === undefined) {
       throw new Error(`Object ${id} not found`);
     }
-    return object as unknown as ObjectMessage;
+    return object as unknown as ObjectData;
   }
 
-  async put(object: ObjectMessage): Promise<string> {
+  async put(object: ObjectData): Promise<string> {
     const objectId = this.id(object);
     await this.db.put(objectId, object as any);
 
@@ -71,7 +71,7 @@ class ObjectManager implements ObjectManagerInterface {
   async findObject(
     objectId: string,
     requestObject: (id: string) => void,
-  ): Promise<ObjectMessage> {
+  ): Promise<ObjectData> {
     try {
       return await this.get(objectId);
     } catch {}
@@ -79,7 +79,7 @@ class ObjectManager implements ObjectManagerInterface {
     const waiters = this.pendingFinds.get(objectId) ?? [];
     let waiter!: PendingWaiter;
 
-    return new Promise<ObjectMessage>((resolve, reject) => {
+    return new Promise<ObjectData>((resolve, reject) => {
       waiter = {
         resolve,
         timeoutId: setTimeout(() => {

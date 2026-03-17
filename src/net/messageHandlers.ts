@@ -1,4 +1,5 @@
-import { MessageType } from "@/protocol/types";
+import ProtocolError from "@/protocol/error";
+import { MessageType, ObjectType } from "@/protocol/types";
 import type {
   ValidMessage,
   HelloMessage,
@@ -14,7 +15,11 @@ import type {
   GetObjectMessage,
   ObjectMessage,
 } from "@/protocol/types";
-import { validatePeers } from "@/protocol/validator";
+import {
+  isCoinbaseCandidate,
+  validatePeers,
+  validateRegularTx,
+} from "@/protocol/validator";
 import { sendMessage } from "@/shared/utils";
 
 export const helloHandler = async (message: HelloMessage) => {
@@ -94,25 +99,74 @@ export const getChainTipHandler = async (
 };
 
 export const iHaveObjectHandler = async (
-  _message: IHaveObjectMessage,
-  _ctx: ConnectedPeerContext,
+  message: IHaveObjectMessage,
+  ctx: ConnectedPeerContext,
 ) => {
-  //TODO: Implement
+  let hasObject = false;
+  try {
+    await ctx.objectManager.get(message.objectid);
+    hasObject = true;
+  } catch (e) {}
+
+  if (!hasObject) {
+    sendMessage(ctx.socket, {
+      type: MessageType.GET_OBJECT,
+      objectid: message.objectid,
+    });
+  }
 };
 
 export const getObjectHandler = async (
-  _message: GetObjectMessage,
-  _ctx: ConnectedPeerContext,
+  message: GetObjectMessage,
+  ctx: ConnectedPeerContext,
 ) => {
-  //TODO: Implement
+  try {
+    const obj = await ctx.objectManager.get(message.objectid);
+    if (obj) {
+      sendMessage(ctx.socket, {
+        type: MessageType.OBJECT,
+        object: obj,
+      });
+      return;
+    }
+  } catch (e) {
+    ctx.logger.error(`Error retrieving object ${message.objectid}: ${e}`);
+  }
 };
 
 export const objectHandler = async (
-  _message: ObjectMessage,
-  _ctx: ConnectedPeerContext,
+  message: ObjectMessage,
+  ctx: ConnectedPeerContext,
 ) => {
-  //By now the objec we received is valid
-  // TODO: Implement
+  const objId = ctx.objectManager.id(message.object);
+  try {
+    await ctx.objectManager.get(objId);
+    return;
+  } catch (e) {}
+  //TODO: validate only regular transactions for now. Blocks and coinbase txs are considered valid for PSET2. Revisit
+  if (
+    message.object.type === ObjectType.TRANSACTION &&
+    !isCoinbaseCandidate(message.object)
+  ) {
+    try {
+      await validateRegularTx(message.object, ctx);
+    } catch (e) {
+      if (e instanceof ProtocolError) {
+        sendMessage(ctx.socket, e);
+      }
+      ctx.logger.error(`Error validating transaction: ${e}`);
+      return;
+    }
+  }
+  // If we don't have the object, store it and notify peers that we have it
+  await ctx.objectManager.put(message.object);
+  ctx.peerManager.broadcast(
+    {
+      type: MessageType.IHAVEOBJECT,
+      objectid: objId,
+    },
+    ctx.id,
+  );
 };
 
 type GenericHandler = (

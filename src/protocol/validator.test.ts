@@ -1,6 +1,5 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import canonicalize from "canonicalize";
-import * as ed from "@noble/ed25519";
 import { blake2s } from "@noble/hashes/blake2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import ProtocolError from "@/protocol/error";
@@ -9,12 +8,12 @@ import {
   GENESIS_BLOCK_ID,
   MessageType,
   ObjectType,
+  type ObjectData,
 } from "@/protocol/types";
 import type {
   BlockMessage,
   ConnectedPeerContext,
   InputTransactionMessage,
-  ObjectMessage,
   OutputTransactionMessage,
   TransactionMessage,
   UtxoSnapshot,
@@ -28,6 +27,11 @@ import {
   verifySignatures,
   validateBlock,
 } from "./validator";
+import {
+  createTestPrivateKey,
+  getPublicKeyHex,
+  signTransaction,
+} from "@/test/transactionTestUtils";
 
 const PREV_TX_ID = "11".repeat(32);
 const RECIPIENT_PUBKEY = "22".repeat(32);
@@ -39,19 +43,8 @@ const logger = {
   warn: (..._args: any[]) => {},
 };
 
-function wrapObject(object: TransactionMessage): ObjectMessage {
-  return {
-    type: MessageType.OBJECT,
-    object,
-  } as ObjectMessage;
-}
-
-function getTransactionObject(message: ObjectMessage): TransactionMessage {
-  return message.object as TransactionMessage;
-}
-
 function createContext(args: {
-  objects?: Record<string, ObjectMessage>;
+  objects?: Record<string, ObjectData>;
   blockTxs?: TransactionMessage[];
   parentUtxo?: UtxoSnapshot | null;
 }): ConnectedPeerContext {
@@ -103,26 +96,6 @@ function hash(obj: TransactionMessage | BlockMessage): string {
   return bytesToHex(blake2s(Buffer.from(canonical, "utf-8")));
 }
 
-async function signTransaction(
-  tx: TransactionMessage,
-  privateKey: Uint8Array,
-): Promise<string> {
-  const txForSigning: TransactionMessage = {
-    ...tx,
-    inputs: tx.inputs?.map((input) => ({
-      ...input,
-      sig: null,
-    })),
-  };
-  const canonical = canonicalize(txForSigning);
-  if (!canonical) {
-    throw new Error("Failed to canonicalize transaction in test helper");
-  }
-  const msgBytes = new Uint8Array(Buffer.from(canonical, "utf-8"));
-  const sig = await ed.signAsync(msgBytes, privateKey);
-  return toHex(sig);
-}
-
 async function expectProtocolError(
   promise: Promise<unknown>,
   code: ErrorCode,
@@ -138,7 +111,7 @@ async function expectProtocolError(
 
 let senderPrivateKey: Uint8Array;
 let senderPubkeyHex: string;
-let previousTxObject: ObjectMessage;
+let previousTxObject: TransactionMessage;
 
 const PSET2_COINBASE_ID =
   "b303d841891f91af118a319f99f5984def51091166ac73c062c98f86ea7371ee";
@@ -198,15 +171,14 @@ const PSET3_VALID_BLOCK: BlockMessage = {
 };
 
 beforeAll(async () => {
-  senderPrivateKey = new Uint8Array(Buffer.from("01".repeat(32), "hex"));
-  const senderPubkey = await ed.getPublicKeyAsync(senderPrivateKey);
-  senderPubkeyHex = toHex(senderPubkey);
+  senderPrivateKey = createTestPrivateKey();
+  senderPubkeyHex = await getPublicKeyHex(senderPrivateKey);
 
-  previousTxObject = wrapObject({
+  previousTxObject = {
     type: ObjectType.TRANSACTION,
     height: 0,
     outputs: [{ pubkey: senderPubkeyHex, value: 50 }],
-  });
+  };
 });
 
 describe("validatePeers", () => {
@@ -296,9 +268,7 @@ describe("validateOutpoints", () => {
     const resolved = await validateOutpoints(inputs, ctx);
 
     expect(resolved).toHaveLength(1);
-    expect(resolved[0]?.resolvedOutput).toEqual(
-      getTransactionObject(previousTxObject).outputs[0],
-    );
+    expect(resolved[0]?.resolvedOutput).toEqual(previousTxObject.outputs[0]);
   });
 
   test("throws UNKNOWN_OBJECT when outpoint tx is missing", async () => {
@@ -393,7 +363,7 @@ describe("verifySignatures", () => {
     const resolvedInputs = [
       {
         ...tx.inputs![0]!,
-        resolvedOutput: getTransactionObject(previousTxObject).outputs[0]!,
+        resolvedOutput: previousTxObject.outputs[0]!,
       },
     ];
 
@@ -415,7 +385,7 @@ describe("verifySignatures", () => {
     const resolvedInputs = [
       {
         ...tx.inputs![0]!,
-        resolvedOutput: getTransactionObject(previousTxObject).outputs[0]!,
+        resolvedOutput: previousTxObject.outputs[0]!,
       },
     ];
 
@@ -440,7 +410,7 @@ describe("verifySignatures", () => {
     const resolvedInputs = [
       {
         ...tx.inputs![0]!,
-        resolvedOutput: getTransactionObject(previousTxObject).outputs[0]!,
+        resolvedOutput: previousTxObject.outputs[0]!,
       },
     ];
 
@@ -543,7 +513,7 @@ describe("validateRegularTx", () => {
   test("accepts PSET2 transaction example", async () => {
     const ctx = createContext({
       objects: {
-        [PSET2_COINBASE_ID]: wrapObject(PSET2_COINBASE),
+        [PSET2_COINBASE_ID]: PSET2_COINBASE,
       },
     });
 
@@ -553,7 +523,7 @@ describe("validateRegularTx", () => {
   test("rejects a tampered PSET2 signature", async () => {
     const ctx = createContext({
       objects: {
-        [PSET2_COINBASE_ID]: wrapObject(PSET2_COINBASE),
+        [PSET2_COINBASE_ID]: PSET2_COINBASE,
       },
     });
     const tamperedTx: TransactionMessage = {

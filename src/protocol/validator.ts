@@ -74,8 +74,8 @@ export async function validateOutpoints(
   const txCache = uniqueInputTxIds.reduce((txMap, txid, index) => {
     const foundObj = fetchedTxs[index];
 
-    if (foundObj && foundObj.object.type === ObjectType.TRANSACTION) {
-      txMap.set(txid, foundObj.object);
+    if (foundObj && foundObj.type === ObjectType.TRANSACTION) {
+      txMap.set(txid, foundObj);
     }
 
     return txMap;

@@ -40,8 +40,8 @@ class BlockManager implements BlockManagerInterface {
   async getBlock(blockId: string): Promise<BlockMessage | null> {
     try {
       const result = await this.objectManager.get(blockId);
-      if (result.object && result.object.type === ObjectType.BLOCK) {
-        return result.object as BlockMessage;
+      if (result && result.type === ObjectType.BLOCK) {
+        return result as BlockMessage;
       }
       return null;
     } catch (err) {
@@ -67,13 +67,13 @@ class BlockManager implements BlockManagerInterface {
         ),
       );
       return resolvedTxs.map((obj) => {
-        if (obj.object.type !== ObjectType.TRANSACTION) {
+        if (obj.type !== ObjectType.TRANSACTION) {
           // Should this happen?
           throw new Error(
-            `Object with ID ${ctx.objectManager.id(obj.object)} is not a transaction`,
+            `Object with ID ${ctx.objectManager.id(obj)} is not a transaction`,
           );
         }
-        return obj.object as TransactionMessage;
+        return obj as TransactionMessage;
       });
     } catch (e) {
       throw new ProtocolError(
@@ -83,10 +83,7 @@ class BlockManager implements BlockManagerInterface {
     }
   }
   async storeAccepted(result: ValidatedBlock): Promise<void> {
-    await this.objectManager.put({
-      type: MessageType.OBJECT,
-      object: result.block,
-    } as ObjectMessage);
+    await this.objectManager.put(result.block);
     await this.utxoStore.putAfterBlock(result.blockId, result.utxoAfterBlock);
   }
 
@@ -96,9 +93,11 @@ class BlockManager implements BlockManagerInterface {
       object: genBlock,
     };
     if (
-      !(await this.objectManager.exists(this.objectManager.id(genesisBlock)))
+      !(await this.objectManager.exists(
+        this.objectManager.id(genesisBlock.object),
+      ))
     ) {
-      await this.objectManager.put(genesisBlock);
+      await this.objectManager.put(genesisBlock.object);
     }
     if (!(await this.utxoStore.hasAfterBlock(genesisId))) {
       await this.utxoStore.putAfterBlock(genesisId, this.utxoStore.empty());

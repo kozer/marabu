@@ -6,13 +6,26 @@ import {
   afterAll,
   beforeEach,
 } from "bun:test";
-import { createServer, Socket } from "net";
+import * as ed from "@noble/ed25519";
+import { createServer, Socket, type AddressInfo } from "net";
 import { handleInboundConnection } from "@/net/connection";
 import { PeerManager } from "@/peers/peerManager";
 import { sendMessage, delay } from "@/shared/utils";
 import { SEPARATOR } from "@/shared/constants";
 import { MemoryPeerStore } from "@/peers/peerStore";
-import { MessageType, ErrorCode } from "@/protocol/types";
+import {
+  MessageType,
+  ErrorCode,
+  ObjectType,
+  type ObjectData,
+  type TransactionMessage,
+} from "@/protocol/types";
+import ObjectManager from "@/storage/objectManager";
+import {
+  createTestPrivateKey,
+  getPublicKeyHex,
+  signTransaction,
+} from "@/test/transactionTestUtils";
 
 // Simple mock logger for tests to avoid pino-pretty keeping process alive
 const logger = {
@@ -22,14 +35,23 @@ const logger = {
   warn: (..._args: any[]) => {},
 };
 
-const objectManager = {
-  async put(_key: string, _value: any): Promise<void> {
-    return;
-  },
-  async get(_key: string): Promise<any> {
-    return null;
-  },
-} as any;
+function createObjectManager(initialObjects: ObjectData[] = []) {
+  const store = new Map<string, ObjectData>();
+  const db = {
+    get: async (id: string) => store.get(id),
+    has: async (id: string) => store.has(id),
+    put: async (id: string, object: ObjectData) => {
+      store.set(id, object);
+    },
+  } as any;
+
+  const manager = new ObjectManager(db);
+  for (const object of initialObjects) {
+    store.set(manager.id(object), object);
+  }
+
+  return { manager, store };
+}
 
 const blockManager = {
   async getParentUtxo(_prevBlockId: string): Promise<any> {
@@ -46,9 +68,10 @@ const blockManager = {
   },
 } as any;
 
-const TEST_PORT = 18018;
+let objectManager = createObjectManager().manager;
+let testPort = 18018;
 
-function connectToNode(port: number = TEST_PORT): Promise<Socket> {
+function connectToNode(port: number = testPort): Promise<Socket> {
   return new Promise((resolve, reject) => {
     const socket = new Socket();
     socket.setTimeout(5000);
@@ -64,6 +87,50 @@ function connectToNode(port: number = TEST_PORT): Promise<Socket> {
       reject(new Error("Connection timeout"));
     });
   });
+}
+
+async function completeHandshake(socket: Socket): Promise<void> {
+  await receiveMessages(socket, 200);
+
+  sendMessage(socket, {
+    type: MessageType.HELLO,
+    version: "0.10.0",
+    agent: "agent",
+  });
+
+  await receiveMessages(socket, 200);
+}
+
+async function createValidTransactionForNode() {
+  const privateKey = createTestPrivateKey();
+  const senderPubkey = await getPublicKeyHex(privateKey);
+  const previousTx: TransactionMessage = {
+    type: ObjectType.TRANSACTION,
+    height: 0,
+    outputs: [{ pubkey: senderPubkey, value: 50 }],
+  };
+
+  await objectManager.put(previousTx);
+  const previousTxId = objectManager.id(previousTx);
+
+  const tx: TransactionMessage = {
+    type: ObjectType.TRANSACTION,
+    inputs: [
+      {
+        outpoint: { txid: previousTxId, index: 0 },
+        sig: null,
+      },
+    ],
+    outputs: [{ pubkey: "22".repeat(32), value: 10 }],
+  };
+
+  tx.inputs![0]!.sig = await signTransaction(tx, privateKey);
+
+  return {
+    previousTx,
+    tx,
+    txid: objectManager.id(tx),
+  };
 }
 
 function receiveMessages(
@@ -166,7 +233,6 @@ describe("Test node functionality", () => {
     await peerManager.load();
 
     server = createServer();
-    server.listen(TEST_PORT);
     server.on("connection", (socket: Socket) => {
       const id = `${socket.remoteAddress}:${socket.remotePort}`;
       const ctx = {
@@ -180,7 +246,20 @@ describe("Test node functionality", () => {
       handleInboundConnection(ctx);
     });
 
-    await delay(500);
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", () => {
+        server.off("error", reject);
+        const address = server.address() as AddressInfo | null;
+        if (!address || typeof address === "string") {
+          reject(new Error("Failed to resolve test server port"));
+          return;
+        }
+        // Catch port instead of hardcoding to avoid conflicts with other tests or instances
+        testPort = address.port;
+        resolve();
+      });
+    });
   });
 
   afterAll(async () => {
@@ -194,6 +273,7 @@ describe("Test node functionality", () => {
     store.reset();
     peerManager = new PeerManager(store, logger);
     await peerManager.load();
+    objectManager = createObjectManager().manager;
   });
 
   test("should be able to connect to node", async () => {
@@ -588,6 +668,171 @@ describe("Test node functionality", () => {
     expect(peersMessage.peers).toContain(testPeer);
 
     await closeSocket(socket2);
+  });
+
+  describe("object exchange", () => {
+    test("returns a newly submitted valid transaction to the same peer", async () => {
+      const socket = await connectToNode();
+      await completeHandshake(socket);
+      const { tx, txid } = await createValidTransactionForNode();
+
+      sendMessage(socket, {
+        type: MessageType.OBJECT,
+        object: tx,
+      });
+      await receiveMessages(socket, 200);
+
+      sendMessage(socket, {
+        type: MessageType.GET_OBJECT,
+        objectid: txid,
+      });
+
+      const messages = await receiveMessages(socket, 500);
+      const objectMessage = messages.find(
+        (m) => m.type === MessageType.OBJECT && m.object && m.object.type,
+      );
+
+      expect(objectMessage).toEqual({
+        type: MessageType.OBJECT,
+        object: tx,
+      });
+
+      await closeSocket(socket);
+    });
+
+    test("returns a newly submitted valid transaction to another peer", async () => {
+      const [sender, receiver] = await Promise.all([
+        connectToNode(),
+        connectToNode(),
+      ]);
+      await Promise.all([
+        completeHandshake(sender),
+        completeHandshake(receiver),
+      ]);
+      const { tx, txid } = await createValidTransactionForNode();
+
+      sendMessage(sender, {
+        type: MessageType.OBJECT,
+        object: tx,
+      });
+      await receiveMessages(sender, 200);
+      await receiveMessages(receiver, 300);
+
+      sendMessage(receiver, {
+        type: MessageType.GET_OBJECT,
+        objectid: txid,
+      });
+
+      const messages = await receiveMessages(receiver, 500);
+      const objectMessage = messages.find(
+        (m) => m.type === MessageType.OBJECT && m.object && m.object.type,
+      );
+
+      expect(objectMessage).toEqual({
+        type: MessageType.OBJECT,
+        object: tx,
+      });
+
+      await Promise.all([closeSocket(sender), closeSocket(receiver)]);
+    });
+
+    test("gossips ihaveobject to other peers for a new valid transaction", async () => {
+      const [sender, receiver] = await Promise.all([
+        connectToNode(),
+        connectToNode(),
+      ]);
+      await Promise.all([
+        completeHandshake(sender),
+        completeHandshake(receiver),
+      ]);
+      const { tx, txid } = await createValidTransactionForNode();
+
+      await receiveMessages(receiver, 200);
+
+      sendMessage(sender, {
+        type: MessageType.OBJECT,
+        object: tx,
+      });
+
+      const receiverMessages = await receiveMessages(receiver, 500);
+      const gossipMessage = receiverMessages.find(
+        (m) => m.type === MessageType.IHAVEOBJECT,
+      );
+
+      expect(gossipMessage).toEqual({
+        type: MessageType.IHAVEOBJECT,
+        objectid: txid,
+      });
+
+      await Promise.all([closeSocket(sender), closeSocket(receiver)]);
+    });
+
+    test("requests an unknown object after receiving ihaveobject", async () => {
+      const socket = await connectToNode();
+      await completeHandshake(socket);
+      const unknownId = "ab".repeat(32);
+
+      sendMessage(socket, {
+        type: MessageType.IHAVEOBJECT,
+        objectid: unknownId,
+      });
+
+      const messages = await receiveMessages(socket, 500);
+      const getObjectMessage = messages.find(
+        (m) => m.type === MessageType.GET_OBJECT,
+      );
+
+      expect(getObjectMessage).toEqual({
+        type: MessageType.GET_OBJECT,
+        objectid: unknownId,
+      });
+
+      await closeSocket(socket);
+    });
+
+    test("rejects invalid transactions and does not gossip them", async () => {
+      const [sender, receiver] = await Promise.all([
+        connectToNode(),
+        connectToNode(),
+      ]);
+      await Promise.all([
+        completeHandshake(sender),
+        completeHandshake(receiver),
+      ]);
+
+      sendMessage(sender, {
+        type: MessageType.OBJECT,
+        object: {
+          type: ObjectType.TRANSACTION,
+          inputs: [
+            {
+              outpoint: {
+                txid: "11".repeat(32),
+                index: 0,
+              },
+              sig: "00".repeat(64),
+            },
+          ],
+          outputs: [{ pubkey: "22".repeat(32), value: 10 }],
+        },
+      });
+
+      const senderMessages = await receiveMessages(sender, 500);
+      const receiverMessages = await receiveMessages(receiver, 500);
+
+      const errorMessage = senderMessages.find(
+        (m) => m.type === MessageType.ERROR,
+      );
+      const gossipMessage = receiverMessages.find(
+        (m) => m.type === MessageType.IHAVEOBJECT,
+      );
+
+      expect(errorMessage).toBeDefined();
+      expect(errorMessage).toHaveProperty("name", ErrorCode.UNKNOWN_OBJECT);
+      expect(gossipMessage).toBeUndefined();
+
+      await Promise.all([closeSocket(sender), closeSocket(receiver)]);
+    });
   });
 
   describe("Other cases", () => {

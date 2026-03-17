@@ -204,6 +204,7 @@ export type GetMempoolMessage = z.infer<typeof GetMempoolMessageSchema>;
 export type MempoolMessage = z.infer<typeof MempoolMessageSchema>;
 export type TransactionMessage = z.infer<typeof TransactionSchema>;
 export type ObjectMessage = z.infer<typeof ObjectMessageSchema>;
+export type ObjectData = z.infer<typeof ObjectDataSchema>;
 export type BlockMessage = z.infer<typeof BlockSchema>;
 export type IHaveObjectMessage = z.infer<typeof IHaveObjectMessageSchema>;
 export type GetObjectMessage = z.infer<typeof GetOjbectMessageSchema>;

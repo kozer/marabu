@@ -7,7 +7,7 @@ import {
   ObjectType,
   TARGET,
 } from "@/protocol/types";
-import type { ObjectMessage } from "@/protocol/types";
+import type { ObjectData, ObjectMessage } from "@/protocol/types";
 function createObject(pubkey: string, value: number): ObjectMessage {
   return {
     type: MessageType.OBJECT,
@@ -18,12 +18,12 @@ function createObject(pubkey: string, value: number): ObjectMessage {
   };
 }
 
-function createManager(initialObjects: ObjectMessage[] = []) {
-  const store = new Map<string, ObjectMessage>();
+function createManager(initialObjects: ObjectData[] = []) {
+  const store = new Map<string, ObjectData>();
   const db = {
     get: async (id: string) => store.get(id),
     has: async (id: string) => store.has(id),
-    put: async (id: string, object: ObjectMessage) => {
+    put: async (id: string, object: ObjectData) => {
       store.set(id, object);
     },
   } as any;
@@ -137,19 +137,19 @@ describe("ObjectManager", () => {
     const object = createObject("33".repeat(32), 10);
     const { manager, store } = createManager();
 
-    const objectId = await manager.put(object);
+    const objectId = await manager.put(object.object);
 
-    expect(objectId).toBe(manager.id(object));
-    expect(store.get(objectId)).toEqual(object);
+    expect(objectId).toBe(manager.id(object.object));
+    expect(store.get(objectId)).toEqual(object.object);
     expect(manager.exists(objectId)).resolves.toBe(true);
   });
 
   test("returns stored objects with get", async () => {
     const object = createObject("44".repeat(32), 20);
-    const { manager } = createManager([object]);
-    const objectId = manager.id(object);
+    const { manager } = createManager([object.object]);
+    const objectId = manager.id(object.object);
 
-    expect(manager.get(objectId)).resolves.toEqual(object);
+    expect(manager.get(objectId)).resolves.toEqual(object.object);
   });
 
   test("throws when get cannot find an object", async () => {
@@ -163,20 +163,20 @@ describe("ObjectManager", () => {
 
   test("returns immediately from findObject when the object already exists", async () => {
     const object = createObject("55".repeat(32), 30);
-    const { manager } = createManager([object]);
-    const objectId = manager.id(object);
+    const { manager } = createManager([object.object]);
+    const objectId = manager.id(object.object);
     const requested: string[] = [];
 
     expect(
       await manager.findObject(objectId, (id) => requested.push(id)),
-    ).toEqual(object);
+    ).toEqual(object.object);
     expect(requested).toEqual([]);
   });
 
   test("requests a missing object once and resolves when it is stored", async () => {
     const object = createObject("66".repeat(32), 40);
     const { manager } = createManager();
-    const objectId = manager.id(object);
+    const objectId = manager.id(object.object);
     const requested: string[] = [];
     let resolveRequest!: (id: string) => void;
     const requestSeen = new Promise<string>((resolve) => {
@@ -192,16 +192,16 @@ describe("ObjectManager", () => {
 
     expect(requested).toEqual([objectId]);
 
-    await manager.put(object);
+    await manager.put(object.object);
 
-    expect(pending).resolves.toEqual(object);
+    expect(pending).resolves.toEqual(object.object);
     expect(manager.pendingFinds.has(objectId)).toBe(false);
   });
 
   test("coalesces concurrent callers waiting for the same missing object", async () => {
     const object = createObject("77".repeat(32), 50);
     const { manager } = createManager();
-    const objectId = manager.id(object);
+    const objectId = manager.id(object.object);
     const requested: string[] = [];
     let requestCount = 0;
     let resolveFirstRequest!: (id: string) => void;
@@ -226,11 +226,11 @@ describe("ObjectManager", () => {
     expect(requestCount).toBe(1);
     expect(manager.pendingFinds.get(objectId)).toHaveLength(2);
 
-    await manager.put(object);
+    await manager.put(object.object);
 
     expect(Promise.all([firstPending, secondPending])).resolves.toEqual([
-      object,
-      object,
+      object.object,
+      object.object,
     ]);
   });
 
@@ -240,7 +240,7 @@ describe("ObjectManager", () => {
     try {
       const object = createObject("88".repeat(32), 60);
       const { manager } = createManager();
-      const objectId = manager.id(object);
+      const objectId = manager.id(object.object);
       const requested: string[] = [];
       let requestCount = 0;
       let resolveFirstRequest!: (id: string) => void;
@@ -277,9 +277,9 @@ describe("ObjectManager", () => {
       expect(manager.pendingFinds.get(objectId)).toHaveLength(1);
       expect(timers.pendingCount()).toBe(1);
 
-      await manager.put(object);
+      await manager.put(object.object);
 
-      expect(second).resolves.toEqual(object);
+      expect(second).resolves.toEqual(object.object);
       expect(manager.pendingFinds.has(objectId)).toBe(false);
       expect(timers.pendingCount()).toBe(0);
     } finally {
