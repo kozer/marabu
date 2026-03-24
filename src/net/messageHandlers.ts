@@ -171,7 +171,14 @@ export const objectHandler = async (
   }
   if (message.object.type === ObjectType.BLOCK) {
     try {
-      await validateBlock(message.object, ctx);
+      const result = await validateBlock(message.object, ctx);
+      if (!result) {
+        //TODO:  Parent block unknown — ignore this block for PSET 3. Remove later
+        ctx.logger.info(`Ignoring block ${objId}: parent block not found`);
+        return;
+      }
+      await ctx.blockManager.storeAccepted(result);
+      // Persist the block and its UTXO snapshot.
     } catch (e) {
       if (e instanceof ProtocolError) {
         sendMessage(ctx.socket, e);
@@ -179,9 +186,10 @@ export const objectHandler = async (
       ctx.logger.error(`Error validating block: ${e}`);
       return;
     }
+  } else {
+    // storeAccepted, adds block to the db. This is for txs.
+    await ctx.objectManager.put(message.object);
   }
-  // If we don't have the object, store it and notify peers that we have it
-  await ctx.objectManager.put(message.object);
   ctx.peerManager.broadcast(
     {
       type: MessageType.IHAVEOBJECT,

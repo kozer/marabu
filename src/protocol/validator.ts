@@ -458,7 +458,7 @@ export async function validateBlock(
       validateGenesisBlock(block, ctx);
     }
     checkPOW(block, ctx);
-    //In case of not having the parent block, db will return null, and for PSET3, we will simply ignore the block.
+    //TODO: In case of not having the parent block, db will return null, and for PSET3, we will simply ignore the block. Remove later.
     const parentUtxo = await ctx.blockManager.getParentUtxo(block.previd);
     if (!parentUtxo) {
       return null;
