@@ -357,7 +357,7 @@ export const checkCoinbaseFormat = (
   return true;
 };
 
-export function applyTransactionToUtxo(
+export function applyTransactionToUtxoSet(
   tx: TransactionMessage,
   utxoSet: UtxoSnapshot,
   ctx: ConnectedPeerContext,
@@ -459,7 +459,7 @@ export async function validateBlock(
     }
     checkPOW(block, ctx);
     //TODO: In case of not having the parent block, db will return null, and for PSET3, we will simply ignore the block. Remove later.
-    const parentUtxo = await ctx.blockManager.getParentUtxo(block.previd);
+    const parentUtxo = await ctx.blockManager.getUtxoSet(block.previd);
     if (!parentUtxo) {
       return null;
     }
@@ -493,7 +493,7 @@ export async function validateBlock(
 
       try {
         ensureInputsPresentInUtxo(result.resolvedInputs, utxoSet);
-        applyTransactionToUtxo(tx, utxoSet, ctx);
+        applyTransactionToUtxoSet(tx, utxoSet, ctx);
       } catch (e) {
         if (e instanceof ProtocolError) {
           throw e;
@@ -509,11 +509,11 @@ export async function validateBlock(
     //We have verified the transactions in the block, so now we can use them to verify the law of conservation for the coinbase transaction if it exists.
     if (coinbaseTx) {
       verifyLawOfConservationForCoinbaseTx(coinbaseTx!, validatedTxs, ctx);
-      applyTransactionToUtxo(coinbaseTx, utxoSet, ctx);
+      applyTransactionToUtxoSet(coinbaseTx, utxoSet, ctx);
     }
 
     return {
-      utxoAfterBlock: utxoSet,
+      utxoSetAfterTxApply: utxoSet,
       blockId: ctx.objectManager.id(block),
       block,
     };

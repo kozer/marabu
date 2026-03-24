@@ -6,9 +6,9 @@ export interface UtxoStoreInterface {
   key(txid: string, index: number): UtxoKey;
   empty(): UtxoSnapshot;
   clone(snapshot: UtxoSnapshot | null): UtxoSnapshot;
-  hasAfterBlock(blockId: string): Promise<boolean>;
-  getAfterBlock(blockId: string): Promise<UtxoSnapshot | null>;
-  putAfterBlock(blockId: string, snapshot: UtxoSnapshot): Promise<void>;
+  has(blockId: string): Promise<boolean>;
+  get(blockId: string): Promise<UtxoSnapshot | null>;
+  put(blockId: string, snapshot: UtxoSnapshot): Promise<void>;
 }
 
 class UtxoStore implements UtxoStoreInterface {
@@ -27,10 +27,10 @@ class UtxoStore implements UtxoStoreInterface {
   clone(snapshot: UtxoSnapshot | null): UtxoSnapshot {
     return new Map(snapshot ?? []);
   }
-  async hasAfterBlock(blockId: string): Promise<boolean> {
+  async has(blockId: string): Promise<boolean> {
     return this.db.has(blockId);
   }
-  async getAfterBlock(blockId: string): Promise<UtxoSnapshot | null> {
+  async get(blockId: string): Promise<UtxoSnapshot | null> {
     try {
       const rows = (await this.db.get(blockId)) as UtxoRows;
       if (rows === undefined) {
@@ -43,7 +43,7 @@ class UtxoStore implements UtxoStoreInterface {
       return null;
     }
   }
-  async putAfterBlock(blockId: string, snapshot: UtxoSnapshot): Promise<void> {
+  async put(blockId: string, snapshot: UtxoSnapshot): Promise<void> {
     await this.db.put(blockId, [...snapshot.values()]);
   }
 }

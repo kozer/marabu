@@ -98,10 +98,10 @@ function createContext(args?: {
     logger,
     objectManager: args?.objectManager as any,
     blockManager: {
-      getParentUtxo: async () => null,
+      getUtxoSet: async () => null,
       getBlock: async () => null,
       getBlockTransactions: async () => [],
-      storeAccepted: async () => {},
+      storeValidatedBlock: async () => {},
     },
   } as ConnectedPeerContext;
 

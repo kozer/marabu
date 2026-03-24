@@ -67,7 +67,7 @@ function createContext(args: {
       },
     } as any,
     blockManager: {
-      async getParentUtxo(_prevBlockId: string | null): Promise<any> {
+      async getUtxoSet(_blockId: string | null): Promise<any> {
         return args.parentUtxo ?? null;
       },
       async getBlock(_blockId: string): Promise<any> {
@@ -313,7 +313,7 @@ describe("validateOutpoints", () => {
         },
       } as any,
       blockManager: {
-        async getParentUtxo(_prevBlockId: string): Promise<any> {
+        async getUtxoSet(_blockId: string): Promise<any> {
           return null;
         },
         async getBlock(_blockId: string): Promise<any> {
@@ -566,7 +566,7 @@ describe("validateBlock", () => {
     const result = await validateBlock(PSET3_VALID_BLOCK, ctx);
     expect(result).not.toBeNull();
     expect(result?.blockId).toBe(hash(PSET3_VALID_BLOCK));
-    expect(result?.utxoAfterBlock.get(`${PSET3_BLOCK_TX_ID}:0`)).toEqual({
+    expect(result?.utxoSetAfterTxApply.get(`${PSET3_BLOCK_TX_ID}:0`)).toEqual({
       txid: PSET3_BLOCK_TX_ID,
       index: 0,
       output: PSET3_BLOCK_TX.outputs[0]!,

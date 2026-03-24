@@ -177,7 +177,7 @@ export const objectHandler = async (
         ctx.logger.info(`Ignoring block ${objId}: parent block not found`);
         return;
       }
-      await ctx.blockManager.storeAccepted(result);
+      await ctx.blockManager.storeValidatedBlock(result);
       // Persist the block and its UTXO snapshot.
     } catch (e) {
       if (e instanceof ProtocolError) {

@@ -14,13 +14,13 @@ import type UtxoStore from "./UtxoStore";
 import ProtocolError from "@/protocol/error";
 
 export interface BlockManagerInterface {
-  getParentUtxo(prevBlockId: string | null): Promise<UtxoSnapshot | null>;
+  getUtxoSet(blockId: string | null): Promise<UtxoSnapshot | null>;
   getBlock(blockId: string): Promise<BlockMessage | null>;
   getBlockTransactions(
     block: BlockMessage,
     ctx: ConnectedPeerContext,
   ): Promise<TransactionMessage[]>;
-  storeAccepted(result: ValidatedBlock): Promise<void>;
+  storeValidatedBlock(result: ValidatedBlock): Promise<void>;
 }
 
 class BlockManager implements BlockManagerInterface {
@@ -28,14 +28,12 @@ class BlockManager implements BlockManagerInterface {
     private readonly objectManager: ObjectManagerInterface,
     private readonly utxoStore: UtxoStore,
   ) {}
-  async getParentUtxo(
-    prevBlockId: string | null,
-  ): Promise<UtxoSnapshot | null> {
-    if (prevBlockId === null) {
+  async getUtxoSet(blockId: string | null): Promise<UtxoSnapshot | null> {
+    if (blockId === null) {
       // This  is genesis, and the block after that is empty
       return this.utxoStore.empty();
     }
-    return this.utxoStore.getAfterBlock(prevBlockId);
+    return this.utxoStore.get(blockId);
   }
   async getBlock(blockId: string): Promise<BlockMessage | null> {
     try {
@@ -82,9 +80,9 @@ class BlockManager implements BlockManagerInterface {
       );
     }
   }
-  async storeAccepted(result: ValidatedBlock): Promise<void> {
+  async storeValidatedBlock(result: ValidatedBlock): Promise<void> {
     await this.objectManager.put(result.block);
-    await this.utxoStore.putAfterBlock(result.blockId, result.utxoAfterBlock);
+    await this.utxoStore.put(result.blockId, result.utxoSetAfterTxApply);
   }
 
   async seedGenesis(genBlock: any, genesisId: any): Promise<void> {
@@ -99,8 +97,8 @@ class BlockManager implements BlockManagerInterface {
     ) {
       await this.objectManager.put(genesisBlock.object);
     }
-    if (!(await this.utxoStore.hasAfterBlock(genesisId))) {
-      await this.utxoStore.putAfterBlock(genesisId, this.utxoStore.empty());
+    if (!(await this.utxoStore.has(genesisId))) {
+      await this.utxoStore.put(genesisId, this.utxoStore.empty());
     }
   }
 }

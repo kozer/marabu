@@ -54,7 +54,7 @@ function createObjectManager(initialObjects: ObjectData[] = []) {
 }
 
 const blockManager = {
-  async getParentUtxo(_prevBlockId: string): Promise<any> {
+  async getUtxoSet(_blockId: string): Promise<any> {
     return null;
   },
   async getBlock(_blockId: string): Promise<any> {

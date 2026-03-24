@@ -256,5 +256,5 @@ export type UtxoRows = UtxoEntry[];
 export type ValidatedBlock = {
   blockId: string;
   block: BlockMessage;
-  utxoAfterBlock: UtxoSnapshot;
+  utxoSetAfterTxApply: UtxoSnapshot;
 };
