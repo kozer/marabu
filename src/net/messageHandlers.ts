@@ -16,7 +16,9 @@ import type {
   ObjectMessage,
 } from "@/protocol/types";
 import {
+  checkCoinbaseFormat,
   isCoinbaseCandidate,
+  validateBlock,
   validatePeers,
   validateRegularTx,
 } from "@/protocol/validator";
@@ -143,18 +145,38 @@ export const objectHandler = async (
     await ctx.objectManager.get(objId);
     return;
   } catch (e) {}
-  //TODO: validate only regular transactions for now. Blocks and coinbase txs are considered valid for PSET2. Revisit
-  if (
-    message.object.type === ObjectType.TRANSACTION &&
-    !isCoinbaseCandidate(message.object)
-  ) {
+  if (message.object.type === ObjectType.TRANSACTION) {
+    if (isCoinbaseCandidate(message.object)) {
+      try {
+        // For coinbase transactions, we only do basic format checks since they are not fully valid until included in a block and validated as part of that block.
+        checkCoinbaseFormat(message.object, ctx);
+      } catch (e) {
+        if (e instanceof ProtocolError) {
+          sendMessage(ctx.socket, e);
+        }
+        ctx.logger.error(`Error validating coinbase transaction: ${e}`);
+        return;
+      }
+    } else {
+      try {
+        await validateRegularTx(message.object, ctx);
+      } catch (e) {
+        if (e instanceof ProtocolError) {
+          sendMessage(ctx.socket, e);
+        }
+        ctx.logger.error(`Error validating transaction: ${e}`);
+        return;
+      }
+    }
+  }
+  if (message.object.type === ObjectType.BLOCK) {
     try {
-      await validateRegularTx(message.object, ctx);
+      await validateBlock(message.object, ctx);
     } catch (e) {
       if (e instanceof ProtocolError) {
         sendMessage(ctx.socket, e);
       }
-      ctx.logger.error(`Error validating transaction: ${e}`);
+      ctx.logger.error(`Error validating block: ${e}`);
       return;
     }
   }

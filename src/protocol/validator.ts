@@ -331,7 +331,7 @@ export function checkForCoinbaseSpending(
   return true;
 }
 
-const checkCoinbaseFormat = (
+export const checkCoinbaseFormat = (
   coinbaseTx: TransactionMessage,
   _: ConnectedPeerContext,
 ): boolean => {
