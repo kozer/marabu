@@ -1,8 +1,8 @@
 import z from "zod";
-import { Socket } from "net";
 import type { PeerManager } from "@/peers/peerManager";
 import type { ObjectManagerInterface } from "@/storage/objectManager";
 import type { BlockManagerInterface } from "@/storage/BlockManager";
+import type ProtocolError from "@/protocol/error";
 
 export enum MessageType {
   HELLO = "hello",
@@ -239,9 +239,15 @@ export interface PeerContext {
   blockManager: BlockManagerInterface;
 }
 export type ConnectedPeerContext = PeerContext & {
-  socket: Socket;
   id: string;
 };
+
+export interface Connection {
+  send(message: ValidMessage | ProtocolError): void;
+  readonly ctx: ConnectedPeerContext;
+  readonly id: string;
+  readonly log: PeerContext["logger"];
+}
 
 export enum ConnectionDirection {
   INBOUND = "inbound",

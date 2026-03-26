@@ -16,6 +16,7 @@ import {
   MessageType,
   ErrorCode,
   ObjectType,
+  type ConnectedPeerContext,
   type ObjectData,
   type TransactionMessage,
 } from "@/protocol/types";
@@ -234,15 +235,14 @@ describe("Test node functionality", () => {
     server = createServer();
     server.on("connection", (socket: Socket) => {
       const id = `${socket.remoteAddress}:${socket.remotePort}`;
-      const ctx = {
+      const ctx: ConnectedPeerContext = {
         id,
-        socket,
         peerManager,
         logger,
         objectManager,
         blockManager,
       };
-      handleInboundConnection(ctx);
+      handleInboundConnection(socket, ctx);
     });
 
     await new Promise<void>((resolve, reject) => {

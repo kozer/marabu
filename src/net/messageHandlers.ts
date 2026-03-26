@@ -10,7 +10,7 @@ import type {
   GetChainTipMessage,
   GetMempoolMessage,
   MempoolMessage,
-  ConnectedPeerContext,
+  Connection,
   IHaveObjectMessage,
   GetObjectMessage,
   ObjectMessage,
@@ -22,7 +22,6 @@ import {
   validatePeers,
   validateRegularTx,
 } from "@/protocol/validator";
-import { sendMessage } from "@/shared/utils";
 
 export const helloHandler = async (message: HelloMessage) => {
   console.log(
@@ -36,56 +35,56 @@ export const textHandler = async (message: TextMessage) => {
 
 export const getPeersHandler = async (
   _message: GetPeersMessage,
-  ctx: ConnectedPeerContext,
+  connection: Connection,
 ) => {
   console.log(`Received GET_PEERS message`);
-  sendMessage(ctx.socket, {
+  connection.send({
     type: MessageType.PEERS,
-    peers: ctx.peerManager.getPeersForAdvertisement(),
+    peers: connection.ctx.peerManager.getPeersForAdvertisement(),
   });
 };
 
 export const peersHandler = async (
   message: PeersMessage,
-  ctx: ConnectedPeerContext,
+  connection: Connection,
 ) => {
-  validatePeers(message, ctx);
+  validatePeers(message, connection);
   const newPeers = [];
   for (const peer of message.peers) {
     const normalizedPeer = peer.trim();
-    if (!ctx.peerManager.getKnownPeerSet().has(normalizedPeer)) {
+    if (!connection.ctx.peerManager.getKnownPeerSet().has(normalizedPeer)) {
       newPeers.push(normalizedPeer);
     }
   }
-  await ctx.peerManager.addKnownPeers(newPeers, ctx.id);
+  await connection.ctx.peerManager.addKnownPeers(newPeers, connection.id);
 };
 
 export const errorHandler = async (
   message: ErrorMessage,
-  ctx: ConnectedPeerContext,
+  connection: Connection,
 ) => {
-  ctx.logger.error(
+  connection.log.error(
     `Received error from client: ${message.name} - ${message.description}`,
   );
 };
 
 export const getMempoolHandler = async (
   _message: GetMempoolMessage,
-  ctx: ConnectedPeerContext,
+  connection: Connection,
 ) => {
-  ctx.logger.info(
-    `Received request for mempool from ${ctx.id}, but this functionality is not implemented yet.`,
+  connection.log.info(
+    `Received request for mempool from ${connection.id}, but this functionality is not implemented yet.`,
   );
 };
 
 export const memPoolHandler = async (
   message: MempoolMessage,
-  ctx: ConnectedPeerContext,
+  connection: Connection,
 ) => {
-  ctx.logger.info(
-    `Received mempool message from ${ctx.id} with txids: ${message.txids.join(", ")}, but this functionality is not implemented yet.`,
+  connection.log.info(
+    `Received mempool message from ${connection.id} with txids: ${message.txids.join(", ")}, but this functionality is not implemented yet.`,
   );
-  sendMessage(ctx.socket, {
+  connection.send({
     type: MessageType.MEMPOOL,
     txids: [],
   });
@@ -93,25 +92,25 @@ export const memPoolHandler = async (
 
 export const getChainTipHandler = async (
   _message: GetChainTipMessage,
-  ctx: ConnectedPeerContext,
+  connection: Connection,
 ) => {
-  ctx.logger.info(
-    `Received request for chain tip from ${ctx.id}, but this functionality is not implemented yet.`,
+  connection.log.info(
+    `Received request for chain tip from ${connection.id}, but this functionality is not implemented yet.`,
   );
 };
 
 export const iHaveObjectHandler = async (
   message: IHaveObjectMessage,
-  ctx: ConnectedPeerContext,
+  connection: Connection,
 ) => {
   let hasObject = false;
   try {
-    await ctx.objectManager.get(message.objectid);
+    await connection.ctx.objectManager.get(message.objectid);
     hasObject = true;
   } catch (e) {}
 
   if (!hasObject) {
-    sendMessage(ctx.socket, {
+    connection.send({
       type: MessageType.GET_OBJECT,
       objectid: message.objectid,
     });
@@ -120,22 +119,21 @@ export const iHaveObjectHandler = async (
 
 export const getObjectHandler = async (
   message: GetObjectMessage,
-  ctx: ConnectedPeerContext,
+  connection: Connection,
 ) => {
   try {
-    const obj = await ctx.objectManager.get(message.objectid);
+    const obj = await connection.ctx.objectManager.get(message.objectid);
     if (obj) {
-      sendMessage(ctx.socket, {
+      connection.send({
         type: MessageType.OBJECT,
         object: obj,
       });
       return;
     }
   } catch (e) {
-    ctx.logger.error(`Error retrieving object ${message.objectid}: ${e}`);
+    connection.log.error(`Error retrieving object ${message.objectid}: ${e}`);
   }
-  sendMessage(
-    ctx.socket,
+  connection.send(
     new ProtocolError(
       ErrorCode.UNFINDABLE_OBJECT,
       `Object ${message.objectid} not found`,
@@ -145,75 +143,75 @@ export const getObjectHandler = async (
 
 export const objectHandler = async (
   message: ObjectMessage,
-  ctx: ConnectedPeerContext,
+  connection: Connection,
 ) => {
-  const objId = ctx.objectManager.id(message.object);
+  const objId = connection.ctx.objectManager.id(message.object);
   try {
-    await ctx.objectManager.get(objId);
+    await connection.ctx.objectManager.get(objId);
     return;
   } catch (e) {}
   if (message.object.type === ObjectType.TRANSACTION) {
     if (isCoinbaseCandidate(message.object)) {
       try {
         // For coinbase transactions, we only do basic format checks since they are not fully valid until included in a block and validated as part of that block.
-        checkCoinbaseFormat(message.object, ctx);
+        checkCoinbaseFormat(message.object, connection);
       } catch (e) {
         if (e instanceof ProtocolError) {
-          sendMessage(ctx.socket, e);
+          connection.send(e);
         }
-        ctx.logger.error(`Error validating coinbase transaction: ${e}`);
+        connection.log.error(`Error validating coinbase transaction: ${e}`);
         return;
       }
     } else {
       try {
-        await validateRegularTx(message.object, ctx);
+        await validateRegularTx(message.object, connection);
       } catch (e) {
         if (e instanceof ProtocolError) {
-          sendMessage(ctx.socket, e);
+          connection.send(e);
         }
-        ctx.logger.error(`Error validating transaction: ${e}`);
+        connection.log.error(`Error validating transaction: ${e}`);
         return;
       }
     }
   }
   if (message.object.type === ObjectType.BLOCK) {
     try {
-      const result = await validateBlock(message.object, ctx);
+      const result = await validateBlock(message.object, connection);
       if (!result) {
         //TODO:  Parent block unknown — ignore this block for PSET 3. Remove later
-        ctx.logger.info(`Ignoring block ${objId}: parent block not found`);
+        connection.log.info(`Ignoring block ${objId}: parent block not found`);
         return;
       }
-      await ctx.blockManager.storeValidatedBlock(result);
+      await connection.ctx.blockManager.storeValidatedBlock(result);
       // Persist the block and its UTXO snapshot.
     } catch (e) {
       if (e instanceof ProtocolError) {
-        sendMessage(ctx.socket, e);
+        connection.send(e);
       }
-      ctx.logger.error(`Error validating block: ${e}`);
+      connection.log.error(`Error validating block: ${e}`);
       return;
     }
   } else {
     // storeAccepted, adds block to the db. This is for txs.
-    await ctx.objectManager.put(message.object);
+    await connection.ctx.objectManager.put(message.object);
   }
-  ctx.peerManager.broadcast(
+  connection.ctx.peerManager.broadcast(
     {
       type: MessageType.IHAVEOBJECT,
       objectid: objId,
     },
-    ctx.id,
+    connection.id,
   );
 };
 
 type GenericHandler = (
   message: ValidMessage,
-  ctx: ConnectedPeerContext,
+  connection: Connection,
 ) => Promise<void>;
 
 export const messageHandlers: Record<
   MessageType,
-  (message: ValidMessage, ctx: ConnectedPeerContext) => Promise<void>
+  (message: ValidMessage, connection: Connection) => Promise<void>
 > = {
   [MessageType.HELLO]: helloHandler as unknown as GenericHandler,
   [MessageType.TEXT]: textHandler as unknown as GenericHandler,

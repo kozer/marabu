@@ -2,23 +2,23 @@ import z from "zod";
 import ProtocolError from "@/protocol/error";
 import {
   MessageSchema,
-  type ConnectedPeerContext,
+  type Connection,
   type ValidMessage,
   ErrorCode,
 } from "@/protocol/types";
 
 export async function parseMessage(
   msg: string,
-  ctx: ConnectedPeerContext,
+  connection: Connection,
 ): Promise<ValidMessage | null> {
-  ctx.logger.info(`Message to parse ${msg.slice(0, 200)}...`);
+  connection.log.info(`Message to parse ${msg.slice(0, 200)}...`);
   let message;
   try {
     message = JSON.parse(msg);
   } catch (error) {
-    ctx.logger.error(`Error parsing message as JSON:`, message);
-    await ctx.peerManager.reportInvalidPeerMessage(
-      ctx.id,
+    connection.log.error(`Error parsing message as JSON:`, message);
+    await connection.ctx.peerManager.reportInvalidPeerMessage(
+      connection.id,
       `Invalid JSON message: ${(error as Error).message}`,
     );
     throw new ProtocolError(
@@ -35,9 +35,9 @@ export async function parseMessage(
         error as z.ZodError<ValidMessage>,
       );
       if (tree.properties?.type?.errors?.includes("Invalid input")) {
-        ctx.logger.error(`Message validation failed: Invalid message type`);
-        await ctx.peerManager.reportInvalidPeerMessage(
-          ctx.id,
+        connection.log.error(`Message validation failed: Invalid message type`);
+        await connection.ctx.peerManager.reportInvalidPeerMessage(
+          connection.id,
           "INVALID_MESSAGE_TYPE",
         );
 
@@ -48,13 +48,13 @@ export async function parseMessage(
       }
     }
     if (error instanceof ProtocolError) {
-      ctx.logger.error(`Protocol validation failed: ${error.name}`);
-      await ctx.peerManager.reportInvalidPeerMessage(ctx.id, error.name);
+      connection.log.error(`Protocol validation failed: ${error.name}`);
+      await connection.ctx.peerManager.reportInvalidPeerMessage(connection.id, error.name);
       throw error;
     } else {
-      ctx.logger.error({ err: error }, "Unknown protocol message");
-      await ctx.peerManager.reportInvalidPeerMessage(
-        ctx.id,
+      connection.log.error({ err: error }, "Unknown protocol message");
+      await connection.ctx.peerManager.reportInvalidPeerMessage(
+        connection.id,
         "UNKNOWN_PROTOCOL_MESSAGE",
       );
 

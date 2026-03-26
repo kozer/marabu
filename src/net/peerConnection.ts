@@ -1,3 +1,4 @@
+import { Socket } from "net";
 import { SEPARATOR } from "@/shared/constants";
 import ProtocolError from "@/protocol/error";
 import { checkHandshake, type ConnectionState } from "@/net/handshake";
@@ -8,78 +9,85 @@ import {
   ErrorCode,
   ConnectionDirection,
   type ConnectedPeerContext,
+  type PeerContext,
+  type Connection,
   type ValidMessage,
 } from "@/protocol/types";
 import { sendMessage } from "@/shared/utils";
 
-export class PeerConnection {
+export class PeerConnection implements Connection {
   private buffer = "";
   private readonly state: ConnectionState = { hasHandshaked: false };
 
   constructor(
-    private readonly ctx: ConnectedPeerContext,
+    private readonly socket: Socket,
+    private readonly _ctx: ConnectedPeerContext,
     private readonly direction: ConnectionDirection,
   ) {
-    if (this.direction === ConnectionDirection.INBOUND) {
-      ctx.peerManager.registerInboundConnection(this);
-    }
     this.attachSocketHandlers();
   }
 
   get id(): string {
-    return this.ctx.id;
+    return this._ctx.id;
   }
 
-  get context(): ConnectedPeerContext {
-    return this.ctx;
+  get ctx(): ConnectedPeerContext {
+    return this._ctx;
+  }
+
+  get log(): PeerContext["logger"] {
+    return this._ctx.logger;
   }
 
   send(message: ValidMessage | ProtocolError): void {
-    sendMessage(this.ctx.socket, message);
+    sendMessage(this.socket, message);
   }
 
   private onConnect(): void {
+    if (this.direction === ConnectionDirection.INBOUND) {
+      this._ctx.peerManager.registerInboundConnection(this);
+    }
     if (this.direction === ConnectionDirection.OUTBOUND) {
-      this.ctx.peerManager.registerOutboundConnection(this);
+      this._ctx.peerManager.registerOutboundConnection(this);
     }
 
     this.sendInitialMessages();
   }
 
   private attachSocketHandlers(): void {
-    if (this.ctx.socket.readyState === "open") {
+    if (this.socket.readyState === "open") {
       this.onConnect();
     } else {
-      this.ctx.socket.on("connect", () => this.onConnect());
+      this.socket.on("connect", () => this.onConnect());
     }
-    this.ctx.socket.on("data", (data) => {
+    this.socket.on("data", (data) => {
       void this.handleData(data.toString());
     });
 
-    this.ctx.socket.on("end", () => {
-      this.ctx.logger.info("Closing connection with the client");
-      this.ctx.peerManager.unregisterConnection(this.id);
+    this.socket.on("end", () => {
+      this.log.info("Closing connection with the client");
+      this._ctx.peerManager.unregisterConnection(this.id);
     });
 
-    this.ctx.socket.on("error", async (err) => {
-      await this.ctx.peerManager.reportConnectionFailure(this.id);
+    this.socket.on("error", async (err) => {
+      await this._ctx.peerManager.reportConnectionFailure(this.id);
 
-      this.ctx.peerManager.unregisterConnection(this.id);
-      this.ctx.socket.destroy();
-      this.ctx.logger.warn(`Connection error for ${this.id}: ${err.message}`);
+      this._ctx.peerManager.unregisterConnection(this.id);
+      this.socket.destroy();
+      this.log.warn(`Connection error for ${this.id}: ${err.message}`);
     });
 
-    this.ctx.socket.on("timeout", async () => {
-      this.ctx.logger.warn(`Connection timeout for ${this.id}`);
-      await this.ctx.peerManager.reportConnectionFailure(this.id);
+    this.socket.on("timeout", async () => {
+      this.log.warn(`Connection timeout for ${this.id}`);
+      await this._ctx.peerManager.reportConnectionFailure(this.id);
 
-      this.ctx.peerManager.unregisterConnection(this.id);
-      this.ctx.socket.destroy();
+      this._ctx.peerManager.unregisterConnection(this.id);
+      this.socket.destroy();
     });
 
-    this.ctx.socket.on("finish", () => {
-      this.ctx.peerManager.unregisterConnection(this.id);
-      this.ctx.logger.debug(`Socket finished for ${this.id}`);
+    this.socket.on("finish", () => {
+      this._ctx.peerManager.unregisterConnection(this.id);
+      this.log.debug(`Socket finished for ${this.id}`);
     });
   }
 
@@ -95,7 +103,7 @@ export class PeerConnection {
     });
   }
   private onHandleError(error: Error): void {
-    this.ctx.logger.error({ err: error }, "Message handler failed");
+    this.log.error({ err: error }, "Message handler failed");
     if (error instanceof ProtocolError) {
       this.send(error);
     } else {
@@ -106,7 +114,7 @@ export class PeerConnection {
         ),
       );
     }
-    this.ctx.socket.end();
+    this.socket.end();
     return;
   }
 
@@ -122,7 +130,7 @@ export class PeerConnection {
 
       let message: ValidMessage | null = null;
       try {
-        message = await parseMessage(rawMessage, this.ctx);
+        message = await parseMessage(rawMessage, this);
         if (!message) {
           return;
         }
@@ -133,16 +141,16 @@ export class PeerConnection {
 
         const handler = messageHandlers[message.type];
         if (!handler) {
-          this.ctx.logger.error(
+          this.log.error(
             `No handler found for message type: ${message.type}`,
           );
           continue;
         }
 
-        await handler(message, this.ctx);
-        this.ctx.logger.info(
+        await handler(message, this);
+        this.log.info(
           { type: message.type },
-          `[${this.ctx.id}]: Received message`,
+          `[${this._ctx.id}]: Received message`,
         );
       } catch (error) {
         this.onHandleError(error as Error);

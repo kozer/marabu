@@ -8,15 +8,18 @@ import {
 } from "@/protocol/types";
 import { PeerConnection } from "@/net/peerConnection";
 
-export function handleInboundConnection(ctx: ConnectedPeerContext) {
+export function handleInboundConnection(
+  socket: Socket,
+  ctx: ConnectedPeerContext,
+) {
   if (!ctx.peerManager.canAcceptInbound(ctx.id)) {
     ctx.logger.warn(
       `Refusing connection from ${ctx.id}: Max peers reached or host is blacklisted.`,
     );
-    ctx.socket.destroy(); // Hang up immediately
+    socket.destroy(); // Hang up immediately
     return;
   }
-  new PeerConnection(ctx, ConnectionDirection.INBOUND);
+  new PeerConnection(socket, ctx, ConnectionDirection.INBOUND);
   ctx.logger.info(
     `Inbound: ${ctx.peerManager.inboundConnectionCount}. Total: ${ctx.peerManager.totalConnections}/${MAX_PEERS}`,
   );
@@ -55,9 +58,8 @@ export function handleOutboundConnection(ctx: PeerContext) {
 
     client.setTimeout(2000);
 
-    const connectedContext = {
+    const connectedContext: ConnectedPeerContext = {
       id: cleanPeer,
-      socket: client,
       ...ctx,
     };
 
@@ -65,6 +67,6 @@ export function handleOutboundConnection(ctx: PeerContext) {
       ctx.logger.info(`Successfully connected to ${cleanPeer}!`);
       client.setTimeout(0);
     });
-    new PeerConnection(connectedContext, ConnectionDirection.OUTBOUND);
+    new PeerConnection(client, connectedContext, ConnectionDirection.OUTBOUND);
   }
 }

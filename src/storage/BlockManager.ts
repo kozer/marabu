@@ -4,6 +4,7 @@ import {
   ObjectType,
   type BlockMessage,
   type ConnectedPeerContext,
+  type Connection,
   type ObjectMessage,
   type TransactionMessage,
   type UtxoSnapshot,
@@ -18,9 +19,10 @@ export interface BlockManagerInterface {
   getBlock(blockId: string): Promise<BlockMessage | null>;
   getBlockTransactions(
     block: BlockMessage,
-    ctx: ConnectedPeerContext,
+    connection: Connection,
   ): Promise<TransactionMessage[]>;
   storeValidatedBlock(result: ValidatedBlock): Promise<void>;
+  close(): Promise<void>;
 }
 
 class BlockManager implements BlockManagerInterface {
@@ -48,13 +50,13 @@ class BlockManager implements BlockManagerInterface {
   }
   async getBlockTransactions(
     block: BlockMessage,
-    ctx: ConnectedPeerContext,
+    connection: Connection,
   ): Promise<TransactionMessage[]> {
     try {
       const resolvedTxs = await Promise.all(
         block.txids.map((txid) =>
-          ctx.objectManager.findObject(txid, (id) =>
-            ctx.peerManager.broadcast({
+          connection.ctx.objectManager.findObject(txid, (id) =>
+            connection.ctx.peerManager.broadcast({
               type: MessageType.GET_OBJECT,
               objectid: id,
             }),
@@ -100,6 +102,10 @@ class BlockManager implements BlockManagerInterface {
     if (!(await this.utxoStore.has(genesisId))) {
       await this.utxoStore.put(genesisId, this.utxoStore.empty());
     }
+  }
+  async close(): Promise<void> {
+    await this.objectManager.close();
+    await this.utxoStore.close();
   }
 }
 export default BlockManager;

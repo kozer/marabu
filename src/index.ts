@@ -8,6 +8,7 @@ import {
 import { PeerManager } from "@/peers/peerManager";
 import { FilePeerStore } from "@/peers/peerStore";
 import ObjectManager from "./storage/objectManager";
+import type { ConnectedPeerContext } from "./protocol/types";
 import UtxoStore from "./storage/UtxoStore";
 import BlockManager from "./storage/BlockManager";
 import { GENESIS_BLOCK, GENESIS_BLOCK_ID } from "./protocol/types";
@@ -38,11 +39,9 @@ export async function startNode(): Promise<NodeHandle> {
         resolve();
       });
     });
+    await blockManager.close();
   } catch (err) {
-    // Clean up already-opened resources before propagating
-    await objectManager.close().catch(() => {});
-    await utxoStore.close().catch(() => {});
-    throw err;
+    logger.error(`Error starting server: ${(err as Error).message}`);
   }
 
   const ctx = {
@@ -53,12 +52,11 @@ export async function startNode(): Promise<NodeHandle> {
   };
   server.on("connection", function (socket: Socket) {
     const id = `${socket.remoteAddress}:${socket.remotePort}`;
-    const connectedCtx = {
+    const connectedCtx: ConnectedPeerContext = {
       id,
-      socket,
       ...ctx,
     };
-    handleInboundConnection(connectedCtx);
+    handleInboundConnection(socket, connectedCtx);
   });
   handleOutboundConnection(ctx);
   const discoveryInterval = setInterval(
@@ -69,26 +67,13 @@ export async function startNode(): Promise<NodeHandle> {
   return {
     shutdown: async () => {
       clearInterval(discoveryInterval);
-      const errors: Error[] = [];
       try {
+        await blockManager.close();
         await new Promise<void>((resolve, reject) => {
           server.close((err) => (err ? reject(err) : resolve()));
         });
       } catch (e) {
-        errors.push(e as Error);
-      }
-      try {
-        await objectManager.close();
-      } catch (e) {
-        errors.push(e as Error);
-      }
-      try {
-        await utxoStore.close();
-      } catch (e) {
-        errors.push(e as Error);
-      }
-      if (errors.length > 0) {
-        throw new AggregateError(errors, "Shutdown encountered errors");
+        logger.error(`Error closing server: ${(e as Error).message}`);
       }
     },
   };

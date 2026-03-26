@@ -12,6 +12,7 @@ import {
 } from "@/protocol/types";
 import type {
   BlockMessage,
+  Connection,
   ConnectedPeerContext,
   InputTransactionMessage,
   OutputTransactionMessage,
@@ -47,10 +48,9 @@ function createContext(args: {
   objects?: Record<string, ObjectData>;
   blockTxs?: TransactionMessage[];
   parentUtxo?: UtxoSnapshot | null;
-}): ConnectedPeerContext {
-  return {
+}): Connection {
+  const ctx: ConnectedPeerContext = {
     id: "peer-1",
-    socket: {} as any,
     peerManager: {
       broadcast: () => {},
     } as any,
@@ -80,7 +80,14 @@ function createContext(args: {
         return;
       },
     } as any,
-  } as ConnectedPeerContext;
+  };
+
+  return {
+    send: () => {},
+    ctx,
+    id: ctx.id,
+    log: logger,
+  };
 }
 
 function toHex(bytes: Uint8Array): string {
@@ -303,30 +310,36 @@ describe("validateOutpoints", () => {
 
   test("fetches each unique txid only once", async () => {
     let getObjectCalls = 0;
-    const ctx = {
-      ...createContext({ objects: { [PREV_TX_ID]: previousTxObject } }),
-      objectManager: {
-        put: async () => {},
-        get: async (key: string) => {
-          getObjectCalls += 1;
-          return key === PREV_TX_ID ? previousTxObject : null;
-        },
-      } as any,
-      blockManager: {
-        async getUtxoSet(_blockId: string): Promise<any> {
-          return null;
-        },
-        async getBlock(_blockId: string): Promise<any> {
-          return null;
-        },
-        async getBlockTransactions(_block: any, _ctx: any): Promise<any[]> {
-          return [];
-        },
-        async storeAccepted(_result: any): Promise<void> {
-          return;
-        },
-      } as any,
-    } as ConnectedPeerContext;
+    const base = createContext({ objects: { [PREV_TX_ID]: previousTxObject } });
+    const connection: Connection = {
+      send: base.send,
+      id: base.id,
+      log: logger,
+      ctx: {
+        ...base.ctx,
+        objectManager: {
+          put: async () => {},
+          get: async (key: string) => {
+            getObjectCalls += 1;
+            return key === PREV_TX_ID ? previousTxObject : null;
+          },
+        } as any,
+        blockManager: {
+          async getUtxoSet(_blockId: string): Promise<any> {
+            return null;
+          },
+          async getBlock(_blockId: string): Promise<any> {
+            return null;
+          },
+          async getBlockTransactions(_block: any, _ctx: any): Promise<any[]> {
+            return [];
+          },
+          async storeAccepted(_result: any): Promise<void> {
+            return;
+          },
+        } as any,
+      },
+    };
 
     const inputs: InputTransactionMessage[] = [
       {
@@ -339,7 +352,7 @@ describe("validateOutpoints", () => {
       },
     ];
 
-    await validateOutpoints(inputs, ctx);
+    await validateOutpoints(inputs, connection);
     expect(getObjectCalls).toBe(1);
   });
 });

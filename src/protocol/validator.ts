@@ -19,11 +19,12 @@ import type {
   RegularTxValidationResult,
   UtxoSnapshot,
   ValidatedBlock,
+  Connection,
 } from "@/protocol/types";
 import { parsePeerAddress, sendMessage } from "@/shared/utils";
 export function validatePeers(
   message: PeersMessage,
-  _ctx: ConnectedPeerContext,
+  _connection: Connection,
 ): boolean {
   for (const peer of message.peers) {
     if (!parsePeerAddress(peer)) {
@@ -42,12 +43,12 @@ export function isCoinbaseCandidate(tx: TransactionMessage): boolean {
 
 export function validateGenesisBlock(
   block: BlockMessage,
-  ctx: ConnectedPeerContext,
+  connection: Connection,
 ): boolean {
-  if (ctx.objectManager.id(block) !== GENESIS_BLOCK_ID) {
+  if (connection.ctx.objectManager.id(block) !== GENESIS_BLOCK_ID) {
     throw new ProtocolError(
       ErrorCode.INVALID_GENESIS,
-      `Genesis block has invalid ID ${ctx.objectManager.id(block)}`,
+      `Genesis block has invalid ID ${connection.ctx.objectManager.id(block)}`,
     );
   }
   return true;
@@ -55,7 +56,7 @@ export function validateGenesisBlock(
 
 export async function validateOutpoints(
   inputs: InputTransactionMessage[],
-  ctx: ConnectedPeerContext,
+  connection: Connection,
 ): Promise<ResolvedInput[]> {
   const uniqueInputTxIds = [
     ...new Set(inputs.map((input) => input.outpoint.txid)),
@@ -63,7 +64,7 @@ export async function validateOutpoints(
   let fetchedTxs;
   try {
     fetchedTxs = await Promise.all(
-      uniqueInputTxIds.map((txid) => ctx.objectManager.get(txid)),
+      uniqueInputTxIds.map((txid) => connection.ctx.objectManager.get(txid)),
     );
   } catch {
     throw new ProtocolError(
@@ -119,7 +120,7 @@ export async function validateOutpoints(
     }
   }
   if (inputs.length !== resolvedOutputs.length) {
-    ctx.logger.warn(
+    connection.log.warn(
       `Resolved only ${resolvedOutputs.length} out of ${inputs.length} inputs. This should never happen.`,
     );
   }
@@ -178,7 +179,7 @@ export async function verifySignatures(
 export function verifyLawOfConservationForCoinbaseTx(
   coinbaseTx: TransactionMessage,
   txs: RegularTxValidationResult[],
-  _ctx: ConnectedPeerContext,
+  _connection: Connection,
 ): boolean {
   const totalFees = txs.reduce((sum, tx) => sum + tx.fee, 0);
   const coinbaseOutputValue = coinbaseTx.outputs.reduce(
@@ -243,7 +244,7 @@ export function checkDuplicateInputs(inputs: InputTransactionMessage[]): void {
 
 export async function validateRegularTx(
   tx: TransactionMessage,
-  ctx: ConnectedPeerContext,
+  connection: Connection,
 ): Promise<RegularTxValidationResult> {
   if (!tx.inputs || tx.inputs.length === 0) {
     throw new ProtocolError(
@@ -274,7 +275,7 @@ export async function validateRegularTx(
      VERIFIED BY checkDuplicateInputs function
 		 e) Check duplicate inputs ( Asked in PSET 3 )
 		*/
-  const resolvedInputs = await validateOutpoints(tx.inputs, ctx);
+  const resolvedInputs = await validateOutpoints(tx.inputs, connection);
   checkDuplicateInputs(tx.inputs);
   await verifySignatures(tx, resolvedInputs);
   const txAmounts = getTxAmounts(resolvedInputs, tx.outputs);
@@ -285,14 +286,14 @@ export async function validateRegularTx(
   };
 }
 
-export function checkPOW(
-  block: BlockMessage,
-  ctx: ConnectedPeerContext,
-): boolean {
-  if (ctx.objectManager.id(block).toLowerCase() >= block.T.toLowerCase()) {
+export function checkPOW(block: BlockMessage, connection: Connection): boolean {
+  if (
+    connection.ctx.objectManager.id(block).toLowerCase() >=
+    block.T.toLowerCase()
+  ) {
     throw new ProtocolError(
       ErrorCode.INVALID_BLOCK_POW,
-      `Block ${ctx.objectManager.id(block)} does not satisfy proof-of-work requirement (ID is greater than target)`,
+      `Block ${connection.ctx.objectManager.id(block)} does not satisfy proof-of-work requirement (ID is greater than target)`,
     );
   }
   return true;
@@ -301,7 +302,7 @@ export function checkPOW(
 export function checkForCoinbaseTxsInBlock(
   block: BlockMessage,
   blockTxs: TransactionMessage[],
-  ctx: ConnectedPeerContext,
+  connection: Connection,
 ): boolean {
   const coinbaseTxs = blockTxs.filter(isCoinbaseCandidate);
   if (coinbaseTxs.length > 1) {
@@ -312,10 +313,10 @@ export function checkForCoinbaseTxsInBlock(
   }
   if (coinbaseTxs.length === 1) {
     const coinbaseTx = coinbaseTxs[0];
-    if (ctx.objectManager.id(coinbaseTx) !== block.txids[0]) {
+    if (connection.ctx.objectManager.id(coinbaseTx) !== block.txids[0]) {
       throw new ProtocolError(
         ErrorCode.INVALID_BLOCK_COINBASE,
-        `Coinbase transaction ID ${ctx.objectManager.id(coinbaseTx)} does not match first txid in block ${block.txids[0]}`,
+        `Coinbase transaction ID ${connection.ctx.objectManager.id(coinbaseTx)} does not match first txid in block ${block.txids[0]}`,
       );
     }
   }
@@ -325,7 +326,7 @@ export function checkForCoinbaseTxsInBlock(
 export function checkForCoinbaseSpending(
   blockTxs: TransactionMessage[],
   coinbaseTxId: string,
-  _: ConnectedPeerContext,
+  _: Connection,
 ): boolean {
   for (const tx of blockTxs) {
     if (tx.inputs) {
@@ -344,7 +345,7 @@ export function checkForCoinbaseSpending(
 
 export const checkCoinbaseFormat = (
   coinbaseTx: TransactionMessage,
-  _: ConnectedPeerContext,
+  _: Connection,
 ): boolean => {
   if (coinbaseTx.inputs !== undefined) {
     throw new ProtocolError(
@@ -371,14 +372,14 @@ export const checkCoinbaseFormat = (
 export function applyTransactionToUtxoSet(
   tx: TransactionMessage,
   utxoSet: UtxoSnapshot,
-  ctx: ConnectedPeerContext,
+  connection: Connection,
 ): void {
   // Remove spent outputs from UTXO set. We check for inputs (?? []) to cover coinbase txs as well.
   for (const input of tx.inputs ?? []) {
     const key = `${input.outpoint.txid}:${input.outpoint.index}` as const;
     utxoSet.delete(key);
   }
-  const txId = ctx.objectManager.id(tx);
+  const txId = connection.ctx.objectManager.id(tx);
   tx.outputs.forEach((output, index) => {
     const key = `${txId}:${index}` as const;
     utxoSet.set(key, {
@@ -405,7 +406,7 @@ export function ensureInputsPresentInUtxo(
 }
 export async function validateBlock(
   block: BlockMessage,
-  ctx: ConnectedPeerContext,
+  connection: Connection,
 ): Promise<ValidatedBlock | null> {
   /*
 	    Check that if previd is null, then the block is the genesis block.
@@ -466,11 +467,13 @@ export async function validateBlock(
 */
   try {
     if (block.previd === null) {
-      validateGenesisBlock(block, ctx);
+      validateGenesisBlock(block, connection);
     }
-    checkPOW(block, ctx);
+    checkPOW(block, connection);
     //TODO: In case of not having the parent block, db will return null, and for PSET3, we will simply ignore the block. Remove later.
-    const parentUtxo = await ctx.blockManager.getUtxoSet(block.previd);
+    const parentUtxo = await connection.ctx.blockManager.getUtxoSet(
+      block.previd,
+    );
     if (!parentUtxo) {
       return null;
     }
@@ -479,24 +482,27 @@ export async function validateBlock(
 
     let blockTxs: TransactionMessage[];
     try {
-      blockTxs = await ctx.blockManager.getBlockTransactions(block, ctx);
+      blockTxs = await connection.ctx.blockManager.getBlockTransactions(
+        block,
+        connection,
+      );
     } catch (e) {
       if (e instanceof ProtocolError) {
-        sendMessage(ctx.socket, e);
+        connection.send(e);
       }
       // One of the transactions is not found. Per PSET 3, we need to send back an UNFINDABLE_OBJECT error, since a block with missing transactions is invalid.
       throw new ProtocolError(
         ErrorCode.UNFINDABLE_OBJECT,
-        `Block ${ctx.objectManager.id(block)} contains an unfindable transaction: ${(e as Error).message}`,
+        `Block ${connection.ctx.objectManager.id(block)} contains an unfindable transaction: ${(e as Error).message}`,
       );
     }
-    checkForCoinbaseTxsInBlock(block, blockTxs, ctx);
+    checkForCoinbaseTxsInBlock(block, blockTxs, connection);
     // We know at this point that there is at most one coinbase transaction, so we can just find it instead of filtering.
     const coinbaseTx = blockTxs.find(isCoinbaseCandidate);
     if (coinbaseTx) {
-      const coinbaseTxId = ctx.objectManager.id(coinbaseTx);
-      checkForCoinbaseSpending(blockTxs, coinbaseTxId, ctx);
-      checkCoinbaseFormat(coinbaseTx, ctx);
+      const coinbaseTxId = connection.ctx.objectManager.id(coinbaseTx);
+      checkForCoinbaseSpending(blockTxs, coinbaseTxId, connection);
+      checkCoinbaseFormat(coinbaseTx, connection);
     }
 
     const validatedTxs: RegularTxValidationResult[] = [];
@@ -504,28 +510,28 @@ export async function validateBlock(
       if (isCoinbaseCandidate(tx)) continue;
       let result: RegularTxValidationResult;
       try {
-        result = await validateRegularTx(tx, ctx);
+        result = await validateRegularTx(tx, connection);
       } catch (e) {
         if (e instanceof ProtocolError) {
-          sendMessage(ctx.socket, e);
+          connection.send(e);
         }
         // One of the transactions is not found. Per PSET 3, we need to send back an UNFINDABLE_OBJECT error, since a block with missing transactions is invalid.
         throw new ProtocolError(
           ErrorCode.UNFINDABLE_OBJECT,
-          `Block ${ctx.objectManager.id(block)} contains invalid transaction ${ctx.objectManager.id(tx)}: ${(e as Error).message}`,
+          `Block ${connection.ctx.objectManager.id(block)} contains invalid transaction ${connection.ctx.objectManager.id(tx)}: ${(e as Error).message}`,
         );
       }
 
       try {
         ensureInputsPresentInUtxo(result.resolvedInputs, utxoSet);
-        applyTransactionToUtxoSet(tx, utxoSet, ctx);
+        applyTransactionToUtxoSet(tx, utxoSet, connection);
       } catch (e) {
         if (e instanceof ProtocolError) {
           throw e;
         }
         //This should never happen.
         throw new Error(
-          `unexpected error while updating UTXO for transaction ${ctx.objectManager.id(tx)}: ${(e as Error).message}`,
+          `unexpected error while updating UTXO for transaction ${connection.ctx.objectManager.id(tx)}: ${(e as Error).message}`,
         );
       }
       validatedTxs.push(result);
@@ -533,13 +539,17 @@ export async function validateBlock(
 
     //We have verified the transactions in the block, so now we can use them to verify the law of conservation for the coinbase transaction if it exists.
     if (coinbaseTx) {
-      verifyLawOfConservationForCoinbaseTx(coinbaseTx!, validatedTxs, ctx);
-      applyTransactionToUtxoSet(coinbaseTx, utxoSet, ctx);
+      verifyLawOfConservationForCoinbaseTx(
+        coinbaseTx!,
+        validatedTxs,
+        connection,
+      );
+      applyTransactionToUtxoSet(coinbaseTx, utxoSet, connection);
     }
 
     return {
       utxoSetAfterTxApply: utxoSet,
-      blockId: ctx.objectManager.id(block),
+      blockId: connection.ctx.objectManager.id(block),
       block,
     };
   } catch (e) {

@@ -4,11 +4,11 @@ import {
   iHaveObjectHandler,
   objectHandler,
 } from "@/net/messageHandlers";
-import { SEPARATOR } from "@/shared/constants";
 import {
   ErrorCode,
   MessageType,
   ObjectType,
+  type Connection,
   type ConnectedPeerContext,
   type TransactionMessage,
 } from "@/protocol/types";
@@ -19,6 +19,7 @@ import type {
   ObjectMessage,
   ValidMessage,
 } from "@/protocol/types";
+import ProtocolError from "@/protocol/error";
 import ObjectManager from "@/storage/objectManager";
 import {
   createTestPrivateKey,
@@ -52,36 +53,14 @@ function createInMemoryObjectManager(initialObjects: ObjectData[] = []) {
   return { manager, store };
 }
 
-function createSocketMock() {
-  const writes: string[] = [];
-  return {
-    socket: {
-      write: (payload: string) => {
-        writes.push(payload);
-        return true;
-      },
-    } as any,
-    writes,
-  };
-}
-
-function parseSentMessages(writes: string[]): any[] {
-  return writes.flatMap((payload) =>
-    payload
-      .split(SEPARATOR)
-      .filter((message) => message.trim().length > 0)
-      .map((message) => JSON.parse(message)),
-  );
-}
-
-function createContext(args?: {
+function createMockConnection(args?: {
   id?: string;
   objectManager?: ConnectedPeerContext["objectManager"];
-  socket?: ConnectedPeerContext["socket"];
   peerManager?: Partial<ConnectedPeerContext["peerManager"]>;
-}) {
-  const broadcasts: Array<{ message: ValidMessage; excludePeerId?: string }> =
-    [];
+}): { connection: Connection; sent: any[]; broadcasts: Array<{ message: ValidMessage; excludePeerId?: string }> } {
+  const sent: any[] = [];
+  const broadcasts: Array<{ message: ValidMessage; excludePeerId?: string }> = [];
+
   const peerManager = {
     broadcast: (message: ValidMessage, excludePeerId?: string) => {
       broadcasts.push({ message, excludePeerId });
@@ -92,9 +71,8 @@ function createContext(args?: {
     ...(args?.peerManager ?? {}),
   } as any;
 
-  const ctx = {
+  const ctx: ConnectedPeerContext = {
     id: args?.id ?? "peer-1",
-    socket: args?.socket ?? createSocketMock().socket,
     peerManager,
     logger,
     objectManager: args?.objectManager as any,
@@ -103,10 +81,27 @@ function createContext(args?: {
       getBlock: async () => null,
       getBlockTransactions: async () => [],
       storeValidatedBlock: async () => {},
-    },
-  } as ConnectedPeerContext;
+    } as any,
+  };
 
-  return { ctx, broadcasts };
+  const connection: Connection = {
+    send(message: ValidMessage | ProtocolError) {
+      if (message instanceof ProtocolError) {
+        sent.push({
+          type: message.type,
+          name: message.name,
+          description: message.description,
+        });
+      } else {
+        sent.push(message);
+      }
+    },
+    ctx,
+    id: ctx.id,
+    log: logger,
+  };
+
+  return { connection, sent, broadcasts };
 }
 
 async function createValidRegularTransaction(manager: ObjectManager) {
@@ -143,16 +138,15 @@ async function createValidRegularTransaction(manager: ObjectManager) {
 describe("messageHandlers object exchange", () => {
   test("requests unknown objects when receiving ihaveobject", async () => {
     const { manager } = createInMemoryObjectManager();
-    const { socket, writes } = createSocketMock();
-    const { ctx } = createContext({ objectManager: manager, socket });
+    const { connection, sent } = createMockConnection({ objectManager: manager });
     const message: IHaveObjectMessage = {
       type: MessageType.IHAVEOBJECT,
       objectid: "aa".repeat(32),
     };
 
-    await iHaveObjectHandler(message, ctx);
+    await iHaveObjectHandler(message, connection);
 
-    expect(parseSentMessages(writes)).toEqual([
+    expect(sent).toEqual([
       {
         type: MessageType.GET_OBJECT,
         objectid: message.objectid,
@@ -171,18 +165,17 @@ describe("messageHandlers object exchange", () => {
       txids: [],
     };
     const { manager } = createInMemoryObjectManager([knownObject]);
-    const { socket, writes } = createSocketMock();
-    const { ctx } = createContext({ objectManager: manager, socket });
+    const { connection, sent } = createMockConnection({ objectManager: manager });
 
     await iHaveObjectHandler(
       {
         type: MessageType.IHAVEOBJECT,
         objectid: manager.id(knownObject),
       },
-      ctx,
+      connection,
     );
 
-    expect(parseSentMessages(writes)).toEqual([]);
+    expect(sent).toEqual([]);
   });
 
   test("returns a stored object when receiving getobject", async () => {
@@ -196,16 +189,15 @@ describe("messageHandlers object exchange", () => {
       txids: [],
     };
     const { manager } = createInMemoryObjectManager([object]);
-    const { socket, writes } = createSocketMock();
-    const { ctx } = createContext({ objectManager: manager, socket });
+    const { connection, sent } = createMockConnection({ objectManager: manager });
     const message: GetObjectMessage = {
       type: MessageType.GET_OBJECT,
       objectid: manager.id(object),
     };
 
-    await getObjectHandler(message, ctx);
+    await getObjectHandler(message, connection);
 
-    expect(parseSentMessages(writes)).toEqual([
+    expect(sent).toEqual([
       {
         type: MessageType.OBJECT,
         object,
@@ -215,8 +207,7 @@ describe("messageHandlers object exchange", () => {
 
   test("sends UNFINDABLE_OBJECT error when getobject misses", async () => {
     const { manager } = createInMemoryObjectManager();
-    const { socket, writes } = createSocketMock();
-    const { ctx } = createContext({ objectManager: manager, socket });
+    const { connection, sent } = createMockConnection({ objectManager: manager });
     const objectid = "ff".repeat(32);
 
     await getObjectHandler(
@@ -224,10 +215,10 @@ describe("messageHandlers object exchange", () => {
         type: MessageType.GET_OBJECT,
         objectid,
       },
-      ctx,
+      connection,
     );
 
-    expect(parseSentMessages(writes)).toEqual([
+    expect(sent).toEqual([
       {
         type: MessageType.ERROR,
         name: ErrorCode.UNFINDABLE_OBJECT,
@@ -238,11 +229,9 @@ describe("messageHandlers object exchange", () => {
 
   test("stores a new valid transaction and gossips its object id", async () => {
     const { manager } = createInMemoryObjectManager();
-    const { socket, writes } = createSocketMock();
-    const { ctx, broadcasts } = createContext({
+    const { connection, sent, broadcasts } = createMockConnection({
       id: "peer-1",
       objectManager: manager,
-      socket,
     });
     const { tx } = await createValidRegularTransaction(manager);
     const message: ObjectMessage = {
@@ -251,10 +240,10 @@ describe("messageHandlers object exchange", () => {
     };
     const objectId = manager.id(tx);
 
-    await objectHandler(message, ctx);
+    await objectHandler(message, connection);
 
     expect(await manager.get(objectId)).toEqual(tx);
-    expect(parseSentMessages(writes)).toEqual([]);
+    expect(sent).toEqual([]);
     expect(broadcasts).toEqual([
       {
         message: {
@@ -268,17 +257,13 @@ describe("messageHandlers object exchange", () => {
 
   test("serves a newly stored object to another peer", async () => {
     const { manager } = createInMemoryObjectManager();
-    const senderSocket = createSocketMock();
-    const receiverSocket = createSocketMock();
-    const sender = createContext({
+    const sender = createMockConnection({
       id: "grader-1",
       objectManager: manager,
-      socket: senderSocket.socket,
     });
-    const receiver = createContext({
+    const receiver = createMockConnection({
       id: "grader-2",
       objectManager: manager,
-      socket: receiverSocket.socket,
     });
     const { tx } = await createValidRegularTransaction(manager);
     const objectId = manager.id(tx);
@@ -288,7 +273,7 @@ describe("messageHandlers object exchange", () => {
         type: MessageType.OBJECT,
         object: tx,
       },
-      sender.ctx,
+      sender.connection,
     );
 
     await getObjectHandler(
@@ -296,10 +281,10 @@ describe("messageHandlers object exchange", () => {
         type: MessageType.GET_OBJECT,
         objectid: objectId,
       },
-      receiver.ctx,
+      receiver.connection,
     );
 
-    expect(parseSentMessages(receiverSocket.writes)).toEqual([
+    expect(receiver.sent).toEqual([
       {
         type: MessageType.OBJECT,
         object: tx,
@@ -309,18 +294,18 @@ describe("messageHandlers object exchange", () => {
 
   test("ignores duplicate objects without re-gossiping", async () => {
     const { manager, store } = createInMemoryObjectManager();
-    const { ctx, broadcasts } = createContext({ objectManager: manager });
+    const { connection, broadcasts } = createMockConnection({ objectManager: manager });
     const { tx } = await createValidRegularTransaction(manager);
     const message: ObjectMessage = {
       type: MessageType.OBJECT,
       object: tx,
     };
 
-    await objectHandler(message, ctx);
+    await objectHandler(message, connection);
     expect(store.size).toBe(2);
     expect(broadcasts).toHaveLength(1);
 
-    await objectHandler(message, ctx);
+    await objectHandler(message, connection);
 
     expect(store.size).toBe(2);
     expect(broadcasts).toHaveLength(1);
@@ -328,10 +313,8 @@ describe("messageHandlers object exchange", () => {
 
   test("sends an error and avoids gossiping invalid transactions", async () => {
     const { manager } = createInMemoryObjectManager();
-    const { socket, writes } = createSocketMock();
-    const { ctx, broadcasts } = createContext({
+    const { connection, sent, broadcasts } = createMockConnection({
       objectManager: manager,
-      socket,
     });
     const invalidTx: TransactionMessage = {
       type: ObjectType.TRANSACTION,
@@ -353,10 +336,10 @@ describe("messageHandlers object exchange", () => {
         type: MessageType.OBJECT,
         object: invalidTx,
       },
-      ctx,
+      connection,
     );
 
-    expect(parseSentMessages(writes)).toEqual([
+    expect(sent).toEqual([
       {
         type: MessageType.ERROR,
         name: "UNKNOWN_OBJECT",
