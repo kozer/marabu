@@ -3,7 +3,6 @@ import {
   MessageType,
   ObjectType,
   type BlockMessage,
-  type ConnectedPeerContext,
   type Connection,
   type ObjectMessage,
   type TransactionMessage,
@@ -66,11 +65,10 @@ class BlockManager implements BlockManagerInterface {
       return resolvedTxs.map((obj) => {
         if (obj.type !== ObjectType.TRANSACTION) {
           // Should this happen?
-          //If the tx is a block we should throw an INVALID_FORMAT per PSET 2.
-          throw new ProtocolError(
-            ErrorCode.INVALID_FORMAT,
-            `Expected transaction object but got ${obj.type}`,
+          connection.log.error(
+            `Expected transaction object but found object of type ${obj.type}`,
           );
+          throw new Error("Expected transaction object but found block object");
         }
         return obj as TransactionMessage;
       });

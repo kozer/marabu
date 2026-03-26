@@ -25,18 +25,18 @@ export enum ObjectType {
 
 // Only NODE_ENV=development uses easy mining targets and dev genesis.
 // Both production and test use real network values.
-const isDev = process.env.NODE_ENV === "development";
+const isTest = process.env.NODE_ENV === "test";
 
-export const TARGET = isDev
+export const TARGET = isTest
   ? "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
   : "00000000abc00000000000000000000000000000000000000000000000000000";
 
-export const GENESIS_BLOCK_ID = isDev
+export const GENESIS_BLOCK_ID = isTest
   ? "94680967e7bd6671ccc0934dff1811e1762dc72d9fedecef97c291087f3865a5"
   : "00000000522473196b73bc619a8b18472c4cb4c6caf785a13fa32aaae7222ff6";
 
 // TODO: Use it to seed database for PSET 3, to have a block to start from. Remove in PSET 4, and restore to objectManager.test.ts for testing purposes.
-export const GENESIS_BLOCK: BlockMessage = isDev
+export const GENESIS_BLOCK: BlockMessage = isTest
   ? {
       T: TARGET,
       created: 0,

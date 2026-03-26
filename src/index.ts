@@ -1,6 +1,7 @@
 import { createServer, Socket } from "net";
+import { Level } from "level";
 import logger from "@/shared/logger";
-import { SERVER_PORT, PEERS_FILE } from "@/shared/constants";
+import { SERVER_PORT, PEERS_FILE, DEFAULT_DB_PATH } from "@/shared/constants";
 import {
   handleInboundConnection,
   handleOutboundConnection,
@@ -8,21 +9,31 @@ import {
 import { PeerManager } from "@/peers/peerManager";
 import { FilePeerStore } from "@/peers/peerStore";
 import ObjectManager from "./storage/objectManager";
-import type { ConnectedPeerContext } from "./protocol/types";
+import type { ConnectedPeerContext, UtxoRows } from "./protocol/types";
 import UtxoStore from "./storage/UtxoStore";
 import BlockManager from "./storage/BlockManager";
 import { GENESIS_BLOCK, GENESIS_BLOCK_ID } from "./protocol/types";
+
+export type NodeOptions = {
+  dbPath?: string;
+  peersFile?: string;
+};
 
 export type NodeHandle = {
   shutdown: () => Promise<void>;
 };
 
-export async function startNode(): Promise<NodeHandle> {
-  const peerManager = new PeerManager(new FilePeerStore(PEERS_FILE), logger);
+export async function startNode(opts?: NodeOptions): Promise<NodeHandle> {
+  const dbPath = opts?.dbPath ?? DEFAULT_DB_PATH;
+  const peersFile = opts?.peersFile ?? PEERS_FILE;
+
+  const peerManager = new PeerManager(new FilePeerStore(peersFile), logger);
   await peerManager.load();
   const server = createServer();
-  const objectManager = new ObjectManager();
-  const utxoStore = new UtxoStore();
+  const objectsDb = new Level(`${dbPath}/objects`, { valueEncoding: "json" });
+  const utxosDb = new Level<string, UtxoRows>(`${dbPath}/utxos`, { valueEncoding: "json" });
+  const objectManager = new ObjectManager(objectsDb);
+  const utxoStore = new UtxoStore(utxosDb);
   const blockManager = new BlockManager(objectManager, utxoStore);
   // TODO: Remove after PSET 3.
   await blockManager.seedGenesis(GENESIS_BLOCK, GENESIS_BLOCK_ID);
@@ -39,9 +50,10 @@ export async function startNode(): Promise<NodeHandle> {
         resolve();
       });
     });
-    await blockManager.close();
   } catch (err) {
     logger.error(`Error starting server: ${(err as Error).message}`);
+    await blockManager.close();
+    process.exit(1);
   }
 
   const ctx = {

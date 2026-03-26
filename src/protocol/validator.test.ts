@@ -5,7 +5,6 @@ import { bytesToHex } from "@noble/hashes/utils.js";
 import ProtocolError from "@/protocol/error";
 import {
   ErrorCode,
-  GENESIS_BLOCK_ID,
   MessageType,
   ObjectType,
   type ObjectData,
@@ -22,6 +21,7 @@ import type {
 import {
   getTxAmounts,
   validatePeers,
+  resolveInputs,
   validateOutpoints,
   validateRegularTx,
   verifyLawOfConservationForRegularTx,
@@ -167,12 +167,17 @@ const PSET3_BLOCK_TX: TransactionMessage = {
     },
   ],
 };
+// Hardcode the production genesis ID so the block hash (and therefore PoW)
+// stays correct regardless of NODE_ENV / isTest flag.
+const PROD_GENESIS_BLOCK_ID =
+  "00000000522473196b73bc619a8b18472c4cb4c6caf785a13fa32aaae7222ff6";
+
 const PSET3_VALID_BLOCK: BlockMessage = {
   T: "00000000abc00000000000000000000000000000000000000000000000000000",
   created: 1771488402,
   miner: "kalaburi",
   nonce: "32013974f028b6d2155088d5a2ec962130ea67d3f8f1d2cc6a55a02008c25b73",
-  previd: GENESIS_BLOCK_ID,
+  previd: PROD_GENESIS_BLOCK_ID,
   txids: [PSET3_BLOCK_TX_ID],
   type: ObjectType.BLOCK,
 };
@@ -272,10 +277,11 @@ describe("validateOutpoints", () => {
       },
     ];
 
-    const resolved = await validateOutpoints(inputs, ctx);
+    const { resolvedInputs, txCache } = await resolveInputs(inputs, ctx);
+    validateOutpoints(inputs, txCache);
 
-    expect(resolved).toHaveLength(1);
-    expect(resolved[0]?.resolvedOutput).toEqual(previousTxObject.outputs[0]);
+    expect(resolvedInputs).toHaveLength(1);
+    expect(resolvedInputs[0]?.resolvedOutput).toEqual(previousTxObject.outputs[0]);
   });
 
   test("throws UNKNOWN_OBJECT when outpoint tx is missing", async () => {
@@ -287,10 +293,14 @@ describe("validateOutpoints", () => {
       },
     ];
 
-    await expectProtocolError(
-      validateOutpoints(inputs, ctx),
-      ErrorCode.UNKNOWN_OBJECT,
-    );
+    const { txCache } = await resolveInputs(inputs, ctx);
+    try {
+      validateOutpoints(inputs, txCache);
+      throw new Error("Expected ProtocolError");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProtocolError);
+      expect((error as ProtocolError).name).toBe(ErrorCode.UNKNOWN_OBJECT);
+    }
   });
 
   test("throws INVALID_TX_OUTPOINT when index is too large", async () => {
@@ -302,10 +312,14 @@ describe("validateOutpoints", () => {
       },
     ];
 
-    await expectProtocolError(
-      validateOutpoints(inputs, ctx),
-      ErrorCode.INVALID_TX_OUTPOINT,
-    );
+    const { txCache } = await resolveInputs(inputs, ctx);
+    try {
+      validateOutpoints(inputs, txCache);
+      throw new Error("Expected ProtocolError");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProtocolError);
+      expect((error as ProtocolError).name).toBe(ErrorCode.INVALID_TX_OUTPOINT);
+    }
   });
 
   test("fetches each unique txid only once", async () => {
@@ -352,7 +366,7 @@ describe("validateOutpoints", () => {
       },
     ];
 
-    await validateOutpoints(inputs, connection);
+    await resolveInputs(inputs, connection);
     expect(getObjectCalls).toBe(1);
   });
 });

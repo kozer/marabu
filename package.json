@@ -16,6 +16,7 @@
     "watch:server": "bun --watch run dev:server",
     "watch:client": "bun --watch run dev:client",
     "test": "bun test",
+    "test:e2e": "LOG_LEVEL=error NODE_ENV=development bun test ./src/e2e/*.e2e.ts",
     "cov": "bun test --coverage"
   },
   "peerDependencies": {

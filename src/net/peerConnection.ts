@@ -141,9 +141,7 @@ export class PeerConnection implements Connection {
 
         const handler = messageHandlers[message.type];
         if (!handler) {
-          this.log.error(
-            `No handler found for message type: ${message.type}`,
-          );
+          this.log.error(`No handler found for message type: ${message.type}`);
           continue;
         }
 

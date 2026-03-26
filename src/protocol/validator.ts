@@ -8,7 +8,6 @@ import {
 } from "@/protocol/types";
 import ProtocolError from "@/protocol/error";
 import type {
-  ConnectedPeerContext,
   InputTransactionMessage,
   OutputTransactionMessage,
   PeersMessage,
@@ -21,7 +20,7 @@ import type {
   ValidatedBlock,
   Connection,
 } from "@/protocol/types";
-import { parsePeerAddress, sendMessage } from "@/shared/utils";
+import { parsePeerAddress } from "@/shared/utils";
 export function validatePeers(
   message: PeersMessage,
   _connection: Connection,
@@ -54,10 +53,13 @@ export function validateGenesisBlock(
   return true;
 }
 
-export async function validateOutpoints(
+export async function resolveInputs(
   inputs: InputTransactionMessage[],
   connection: Connection,
-): Promise<ResolvedInput[]> {
+): Promise<{
+  resolvedInputs: ResolvedInput[];
+  txCache: Map<string, TransactionMessage>;
+}> {
   const uniqueInputTxIds = [
     ...new Set(inputs.map((input) => input.outpoint.txid)),
   ];
@@ -72,28 +74,36 @@ export async function validateOutpoints(
       "Cannot find one or more previous transactions",
     );
   }
-  let txCache: Map<string, TransactionMessage> = new Map();
-  try {
-    txCache = uniqueInputTxIds.reduce((txMap, txid, index) => {
-      const foundObj = fetchedTxs[index];
-      if (foundObj && foundObj.type === ObjectType.BLOCK) {
-        throw new Error(" Expected transaction object but got block object");
-      }
-
-      if (foundObj && foundObj.type === ObjectType.TRANSACTION) {
-        txMap.set(txid, foundObj);
-      }
-
-      return txMap;
-    }, new Map<string, TransactionMessage>());
-  } catch (e) {
-    throw new ProtocolError(
-      ErrorCode.UNKNOWN_OBJECT,
-      "Requested tx is not a transaction object",
-    );
+  const txCache = new Map<string, TransactionMessage>();
+  for (let i = 0; i < uniqueInputTxIds.length; i++) {
+    const foundObj = fetchedTxs[i];
+    if (foundObj && foundObj.type === ObjectType.BLOCK) {
+      throw new ProtocolError(
+        ErrorCode.UNKNOWN_OBJECT,
+        "Requested tx is not a transaction object",
+      );
+    }
+    if (foundObj && foundObj.type === ObjectType.TRANSACTION) {
+      txCache.set(uniqueInputTxIds[i]!, foundObj);
+    }
   }
 
-  const resolvedOutputs: ResolvedInput[] = [];
+  const resolvedInputs: ResolvedInput[] = inputs.map((input) => {
+    const prevTx = txCache.get(input.outpoint.txid);
+    const prevOutput = prevTx?.outputs[input.outpoint.index];
+    return {
+      ...input,
+      resolvedOutput: prevOutput!,
+    };
+  });
+
+  return { resolvedInputs, txCache };
+}
+
+export function validateOutpoints(
+  inputs: InputTransactionMessage[],
+  txCache: Map<string, TransactionMessage>,
+): void {
   for (const input of inputs) {
     const prevTx = txCache.get(input.outpoint.txid);
 
@@ -109,22 +119,7 @@ export async function validateOutpoints(
         `Index ${input.outpoint.index} is out of bounds (tx has only ${prevTx.outputs.length} outputs)`,
       );
     }
-
-    const prevOutput = prevTx.outputs[input.outpoint.index];
-    // This should always be defined, but we check here for ts.
-    if (prevOutput) {
-      resolvedOutputs.push({
-        ...input,
-        resolvedOutput: prevOutput,
-      });
-    }
   }
-  if (inputs.length !== resolvedOutputs.length) {
-    connection.log.warn(
-      `Resolved only ${resolvedOutputs.length} out of ${inputs.length} inputs. This should never happen.`,
-    );
-  }
-  return resolvedOutputs;
 }
 
 export async function verifySignatures(
@@ -275,7 +270,11 @@ export async function validateRegularTx(
      VERIFIED BY checkDuplicateInputs function
 		 e) Check duplicate inputs ( Asked in PSET 3 )
 		*/
-  const resolvedInputs = await validateOutpoints(tx.inputs, connection);
+  const { resolvedInputs, txCache } = await resolveInputs(
+    tx.inputs,
+    connection,
+  );
+  validateOutpoints(tx.inputs, txCache);
   checkDuplicateInputs(tx.inputs);
   await verifySignatures(tx, resolvedInputs);
   const txAmounts = getTxAmounts(resolvedInputs, tx.outputs);
@@ -375,6 +374,7 @@ export function applyTransactionToUtxoSet(
   connection: Connection,
 ): void {
   // Remove spent outputs from UTXO set. We check for inputs (?? []) to cover coinbase txs as well.
+  // Coinbase transactions have no inputs, and are not being spend by current block, so we don't need to do anything to the UTXO set for them.
   for (const input of tx.inputs ?? []) {
     const key = `${input.outpoint.txid}:${input.outpoint.index}` as const;
     utxoSet.delete(key);
@@ -391,10 +391,10 @@ export function applyTransactionToUtxoSet(
 }
 
 export function ensureInputsPresentInUtxo(
-  resolvedInputs: ResolvedInput[],
+  inputs: InputTransactionMessage[],
   utxoSet: UtxoSnapshot,
 ): void {
-  for (const input of resolvedInputs) {
+  for (const input of inputs) {
     const key = `${input.outpoint.txid}:${input.outpoint.index}` as const;
     if (!utxoSet.has(key)) {
       throw new ProtocolError(
@@ -432,7 +432,7 @@ export async function validateBlock(
 			have found it and sent it back, send back an UNFINDABLE_OBJECT error to the peer who
 			sent you the block.
 
-      VERIFIED BY validateRegularTx after checkTxsInBlock
+      VERIFIED BY resolvedInputs + getTxAmounts  + ensureInputsPresentInUtxo + applyTransactionToUtxoSet
 			e. For each transaction in the block, check that the transaction is valid, and update your
 			UTXO set based on the transaction. More details on this in Section 2. If any transaction
 			is invalid, the whole block will be considered invalid. Since you should not add such
@@ -508,33 +508,13 @@ export async function validateBlock(
     const validatedTxs: RegularTxValidationResult[] = [];
     for (const tx of blockTxs) {
       if (isCoinbaseCandidate(tx)) continue;
-      let result: RegularTxValidationResult;
-      try {
-        result = await validateRegularTx(tx, connection);
-      } catch (e) {
-        if (e instanceof ProtocolError) {
-          connection.send(e);
-        }
-        // One of the transactions is not found. Per PSET 3, we need to send back an UNFINDABLE_OBJECT error, since a block with missing transactions is invalid.
-        throw new ProtocolError(
-          ErrorCode.UNFINDABLE_OBJECT,
-          `Block ${connection.ctx.objectManager.id(block)} contains invalid transaction ${connection.ctx.objectManager.id(tx)}: ${(e as Error).message}`,
-        );
-      }
-
-      try {
-        ensureInputsPresentInUtxo(result.resolvedInputs, utxoSet);
-        applyTransactionToUtxoSet(tx, utxoSet, connection);
-      } catch (e) {
-        if (e instanceof ProtocolError) {
-          throw e;
-        }
-        //This should never happen.
-        throw new Error(
-          `unexpected error while updating UTXO for transaction ${connection.ctx.objectManager.id(tx)}: ${(e as Error).message}`,
-        );
-      }
-      validatedTxs.push(result);
+      // Transactions are already validated standalone before being stored in the DB.
+      // We only need to resolve inputs for UTXO checks and fee computation.
+      const { resolvedInputs } = await resolveInputs(tx.inputs!, connection);
+      const txAmounts = getTxAmounts(resolvedInputs, tx.outputs);
+      ensureInputsPresentInUtxo(tx.inputs!, utxoSet);
+      applyTransactionToUtxoSet(tx, utxoSet, connection);
+      validatedTxs.push({ resolvedInputs, ...txAmounts });
     }
 
     //We have verified the transactions in the block, so now we can use them to verify the law of conservation for the coinbase transaction if it exists.
