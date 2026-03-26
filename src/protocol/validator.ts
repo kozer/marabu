@@ -20,7 +20,7 @@ import type {
   UtxoSnapshot,
   ValidatedBlock,
 } from "@/protocol/types";
-import { parsePeerAddress } from "@/shared/utils";
+import { parsePeerAddress, sendMessage } from "@/shared/utils";
 export function validatePeers(
   message: PeersMessage,
   _ctx: ConnectedPeerContext,
@@ -71,15 +71,26 @@ export async function validateOutpoints(
       "Cannot find one or more previous transactions",
     );
   }
-  const txCache = uniqueInputTxIds.reduce((txMap, txid, index) => {
-    const foundObj = fetchedTxs[index];
+  let txCache: Map<string, TransactionMessage> = new Map();
+  try {
+    txCache = uniqueInputTxIds.reduce((txMap, txid, index) => {
+      const foundObj = fetchedTxs[index];
+      if (foundObj && foundObj.type === ObjectType.BLOCK) {
+        throw new Error(" Expected transaction object but got block object");
+      }
 
-    if (foundObj && foundObj.type === ObjectType.TRANSACTION) {
-      txMap.set(txid, foundObj);
-    }
+      if (foundObj && foundObj.type === ObjectType.TRANSACTION) {
+        txMap.set(txid, foundObj);
+      }
 
-    return txMap;
-  }, new Map<string, TransactionMessage>());
+      return txMap;
+    }, new Map<string, TransactionMessage>());
+  } catch (e) {
+    throw new ProtocolError(
+      ErrorCode.UNKNOWN_OBJECT,
+      "Requested tx is not a transaction object",
+    );
+  }
 
   const resolvedOutputs: ResolvedInput[] = [];
   for (const input of inputs) {
@@ -466,7 +477,19 @@ export async function validateBlock(
     // We create a copy
     const utxoSet = new Map(parentUtxo);
 
-    const blockTxs = await ctx.blockManager.getBlockTransactions(block, ctx);
+    let blockTxs: TransactionMessage[];
+    try {
+      blockTxs = await ctx.blockManager.getBlockTransactions(block, ctx);
+    } catch (e) {
+      if (e instanceof ProtocolError) {
+        sendMessage(ctx.socket, e);
+      }
+      // One of the transactions is not found. Per PSET 3, we need to send back an UNFINDABLE_OBJECT error, since a block with missing transactions is invalid.
+      throw new ProtocolError(
+        ErrorCode.UNFINDABLE_OBJECT,
+        `Block ${ctx.objectManager.id(block)} contains an unfindable transaction: ${(e as Error).message}`,
+      );
+    }
     checkForCoinbaseTxsInBlock(block, blockTxs, ctx);
     // We know at this point that there is at most one coinbase transaction, so we can just find it instead of filtering.
     const coinbaseTx = blockTxs.find(isCoinbaseCandidate);
@@ -483,8 +506,10 @@ export async function validateBlock(
       try {
         result = await validateRegularTx(tx, ctx);
       } catch (e) {
-        // Although validateRegular tx throws protocoleErrors, we catch those here and re-throw as UNFINDABLE_OBJECT,
-        // since if a transaction in a block is invalid, we want to consider the whole block invalid.
+        if (e instanceof ProtocolError) {
+          sendMessage(ctx.socket, e);
+        }
+        // One of the transactions is not found. Per PSET 3, we need to send back an UNFINDABLE_OBJECT error, since a block with missing transactions is invalid.
         throw new ProtocolError(
           ErrorCode.UNFINDABLE_OBJECT,
           `Block ${ctx.objectManager.id(block)} contains invalid transaction ${ctx.objectManager.id(tx)}: ${(e as Error).message}`,

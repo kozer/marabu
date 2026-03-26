@@ -23,22 +23,40 @@ export enum ObjectType {
   BLOCK = "block",
 }
 
-export const TARGET =
-  "00000000abc00000000000000000000000000000000000000000000000000000";
-export const GENESIS_BLOCK_ID =
-  "00000000522473196b73bc619a8b18472c4cb4c6caf785a13fa32aaae7222ff6";
+// Only NODE_ENV=development uses easy mining targets and dev genesis.
+// Both production and test use real network values.
+const isDev = process.env.NODE_ENV === "development";
+
+export const TARGET = isDev
+  ? "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  : "00000000abc00000000000000000000000000000000000000000000000000000";
+
+export const GENESIS_BLOCK_ID = isDev
+  ? "94680967e7bd6671ccc0934dff1811e1762dc72d9fedecef97c291087f3865a5"
+  : "00000000522473196b73bc619a8b18472c4cb4c6caf785a13fa32aaae7222ff6";
 
 // TODO: Use it to seed database for PSET 3, to have a block to start from. Remove in PSET 4, and restore to objectManager.test.ts for testing purposes.
-export const GENESIS_BLOCK: BlockMessage = {
-  T: TARGET,
-  created: 1771159355,
-  miner: "Marabu",
-  nonce: "00dd82159556175752d9ba7349df67bddd237b59183747383f7b720e85c32347",
-  note: "Financial Times 2026-02-13: Crypto's battle with the banks is splitting Trump's base",
-  previd: null,
-  txids: [],
-  type: ObjectType.BLOCK,
-};
+export const GENESIS_BLOCK: BlockMessage = isDev
+  ? {
+      T: TARGET,
+      created: 0,
+      miner: "dev",
+      nonce: "0000000000000000000000000000000000000000000000000000000000000000",
+      note: "dev genesis",
+      previd: null,
+      txids: [],
+      type: ObjectType.BLOCK,
+    }
+  : {
+      T: TARGET,
+      created: 1771159355,
+      miner: "Marabu",
+      nonce: "00dd82159556175752d9ba7349df67bddd237b59183747383f7b720e85c32347",
+      note: "Financial Times 2026-02-13: Crypto's battle with the banks is splitting Trump's base",
+      previd: null,
+      txids: [],
+      type: ObjectType.BLOCK,
+    };
 
 //50* 10^12 picabu
 export const BLOCK_REWARD = 50 * 10 ** 12;

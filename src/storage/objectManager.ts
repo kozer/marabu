@@ -20,6 +20,7 @@ export interface ObjectManagerInterface {
     requestObject: (id: string) => void,
   ): Promise<ObjectData>;
   put(object: ObjectData): Promise<string>;
+  close(): Promise<void>;
 }
 
 class ObjectManager implements ObjectManagerInterface {
@@ -66,6 +67,10 @@ class ObjectManager implements ObjectManagerInterface {
 
   async exists(id: string): Promise<boolean> {
     return await this.db.has(id);
+  }
+
+  async close(): Promise<void> {
+    await this.db.close();
   }
 
   async findObject(

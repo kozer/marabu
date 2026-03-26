@@ -1,7 +1,7 @@
 export const SEPARATOR = "\n";
 export const SERVER_PORT = 18018;
-const isProd = process.env.NODE_ENV === "production";
-export const SERVER_HOST = isProd ? "95.179.181.27" : "0.0.0.0";
+const isDev = process.env.NODE_ENV === "development";
+export const SERVER_HOST = isDev ? "0.0.0.0" : "95.179.181.27";
 
 export const BOOTSTRAP_PEERS = [
   "95.179.158.137:18018",
@@ -16,7 +16,7 @@ export const MAX_PEERS = 1000;
 export const OUTBOUND_PEER_LIMIT = 200;
 
 export const DEFAULT_DB_PATH = "./marabudb";
-export const FIND_TIMEOUT_MS = 15000;
+export const FIND_TIMEOUT_MS = 5000;
 export const QUEUE_DELAY_PER_BATCH_MS = 100;
 export const REQUEST_BATCH_SIZE = 10;
 

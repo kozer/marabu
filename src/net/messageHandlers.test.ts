@@ -6,6 +6,7 @@ import {
 } from "@/net/messageHandlers";
 import { SEPARATOR } from "@/shared/constants";
 import {
+  ErrorCode,
   MessageType,
   ObjectType,
   type ConnectedPeerContext,
@@ -212,20 +213,27 @@ describe("messageHandlers object exchange", () => {
     ]);
   });
 
-  test("does not crash or send data when getobject misses", async () => {
+  test("sends UNFINDABLE_OBJECT error when getobject misses", async () => {
     const { manager } = createInMemoryObjectManager();
     const { socket, writes } = createSocketMock();
     const { ctx } = createContext({ objectManager: manager, socket });
+    const objectid = "ff".repeat(32);
 
     await getObjectHandler(
       {
         type: MessageType.GET_OBJECT,
-        objectid: "ff".repeat(32),
+        objectid,
       },
       ctx,
     );
 
-    expect(parseSentMessages(writes)).toEqual([]);
+    expect(parseSentMessages(writes)).toEqual([
+      {
+        type: MessageType.ERROR,
+        name: ErrorCode.UNFINDABLE_OBJECT,
+        description: `Object ${objectid} not found`,
+      },
+    ]);
   });
 
   test("stores a new valid transaction and gossips its object id", async () => {
@@ -355,7 +363,7 @@ describe("messageHandlers object exchange", () => {
         description: "Cannot find one or more previous transactions",
       },
     ]);
-    await expect(manager.get(invalidTxId)).rejects.toThrow(
+    expect(manager.get(invalidTxId)).rejects.toThrow(
       `Object ${invalidTxId} not found`,
     );
     expect(broadcasts).toEqual([]);

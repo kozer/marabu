@@ -46,6 +46,10 @@ class UtxoStore implements UtxoStoreInterface {
   async put(blockId: string, snapshot: UtxoSnapshot): Promise<void> {
     await this.db.put(blockId, [...snapshot.values()]);
   }
+
+  async close(): Promise<void> {
+    await this.db.close();
+  }
 }
 
 export default UtxoStore;

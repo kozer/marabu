@@ -54,28 +54,28 @@ class BlockManager implements BlockManagerInterface {
       const resolvedTxs = await Promise.all(
         block.txids.map((txid) =>
           ctx.objectManager.findObject(txid, (id) =>
-            ctx.peerManager.broadcast(
-              {
-                type: MessageType.GET_OBJECT,
-                objectid: id,
-              },
-              ctx.id,
-            ),
+            ctx.peerManager.broadcast({
+              type: MessageType.GET_OBJECT,
+              objectid: id,
+            }),
           ),
         ),
       );
       return resolvedTxs.map((obj) => {
         if (obj.type !== ObjectType.TRANSACTION) {
           // Should this happen?
-          throw new Error(
-            `Object with ID ${ctx.objectManager.id(obj)} is not a transaction`,
+          //If the tx is a block we should throw an INVALID_FORMAT per PSET 2.
+          throw new ProtocolError(
+            ErrorCode.INVALID_FORMAT,
+            `Expected transaction object but got ${obj.type}`,
           );
         }
         return obj as TransactionMessage;
       });
     } catch (e) {
+      //If we cant find a tx we should throw an UNKNOWN_OBJECT per PSET 2.
       throw new ProtocolError(
-        ErrorCode.UNFINDABLE_OBJECT,
+        ErrorCode.UNKNOWN_OBJECT,
         `Failed to find transaction in block: ${(e as Error).message}`,
       );
     }

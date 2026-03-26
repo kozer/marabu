@@ -1,5 +1,5 @@
 import ProtocolError from "@/protocol/error";
-import { MessageType, ObjectType } from "@/protocol/types";
+import { ErrorCode, MessageType, ObjectType } from "@/protocol/types";
 import type {
   ValidMessage,
   HelloMessage,
@@ -134,6 +134,13 @@ export const getObjectHandler = async (
   } catch (e) {
     ctx.logger.error(`Error retrieving object ${message.objectid}: ${e}`);
   }
+  sendMessage(
+    ctx.socket,
+    new ProtocolError(
+      ErrorCode.UNFINDABLE_OBJECT,
+      `Object ${message.objectid} not found`,
+    ),
+  );
 };
 
 export const objectHandler = async (

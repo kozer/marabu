@@ -6,7 +6,6 @@ import {
   afterAll,
   beforeEach,
 } from "bun:test";
-import * as ed from "@noble/ed25519";
 import { createServer, Socket, type AddressInfo } from "net";
 import { handleInboundConnection } from "@/net/connection";
 import { PeerManager } from "@/peers/peerManager";
