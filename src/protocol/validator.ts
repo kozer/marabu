@@ -322,7 +322,7 @@ export function checkForCoinbaseTxsInBlock(
   return true;
 }
 
-export function checkForCoinbaseSpending(
+export function verifyNoCoinbaseSpendingInBlock(
   blockTxs: TransactionMessage[],
   coinbaseTxId: string,
   _: Connection,
@@ -482,10 +482,7 @@ export async function validateBlock(
 
     let blockTxs: TransactionMessage[];
     try {
-      blockTxs = await connection.ctx.blockManager.getBlockTransactions(
-        block,
-        connection,
-      );
+      blockTxs = await connection.ctx.blockManager.getBlockTransactions(block);
     } catch (e) {
       if (e instanceof ProtocolError) {
         connection.send(e);
@@ -501,7 +498,7 @@ export async function validateBlock(
     const coinbaseTx = blockTxs.find(isCoinbaseCandidate);
     if (coinbaseTx) {
       const coinbaseTxId = connection.ctx.objectManager.id(coinbaseTx);
-      checkForCoinbaseSpending(blockTxs, coinbaseTxId, connection);
+      verifyNoCoinbaseSpendingInBlock(blockTxs, coinbaseTxId, connection);
       checkCoinbaseFormat(coinbaseTx, connection);
     }
 

@@ -2,9 +2,10 @@ import canonicalize from "canonicalize";
 import { blake2s } from "@noble/hashes/blake2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { Level } from "level";
-import type { ObjectData, ObjectMessage } from "@/protocol/types";
+import type { ObjectData } from "@/protocol/types";
 import { DEFAULT_DB_PATH, FIND_TIMEOUT_MS } from "@/shared/constants";
 import RequestQueue from "./requestQueue";
+import type pino from "pino";
 
 export type PendingWaiter = {
   resolve: (value: ObjectData) => void;
@@ -26,11 +27,14 @@ export interface ObjectManagerInterface {
 class ObjectManager implements ObjectManagerInterface {
   private readonly db: Level;
   pendingFinds: Map<string, PendingWaiter[]> = new Map();
-  private requestQueue: RequestQueue = new RequestQueue();
+  private requestQueue: RequestQueue;
+  private logger: pino.Logger;
 
-  constructor(db?: Level) {
+  constructor(logger: pino.Logger, db?: Level) {
     this.db =
       db || new Level(`${DEFAULT_DB_PATH}/objects`, { valueEncoding: "json" });
+    this.logger = logger;
+    this.requestQueue = new RequestQueue(logger);
   }
   async get(id: string): Promise<ObjectData> {
     const object = await this.db.get(id);
@@ -48,6 +52,7 @@ class ObjectManager implements ObjectManagerInterface {
     if (waiters) {
       for (const waiter of waiters) {
         clearTimeout(waiter.timeoutId);
+        this.logger.info(`Resolving pending find for object ${objectId}`);
         waiter.resolve(object);
       }
       this.pendingFinds.delete(objectId);

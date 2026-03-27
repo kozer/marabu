@@ -74,10 +74,22 @@ export class PeerManager {
     return parsed.dialHost.toLowerCase();
   }
 
-  private getOrCreatePenalty(key: string): PenaltyRecord {
-    const existing = this.penalties.get(key);
-    if (existing) {
-      return existing;
+  private getPenalty(address: string): PenaltyRecord | null {
+    const key = this.toPenaltyKey(address);
+    if (!key) {
+      return null;
+    }
+    return this.penalties.get(key) ?? null;
+  }
+
+  private getOrCreatePenalty(address: string): PenaltyRecord | null {
+    const penalty = this.getPenalty(address);
+    if (penalty) {
+      return penalty;
+    }
+    const key = this.toPenaltyKey(address);
+    if (!key) {
+      return null;
     }
 
     const created: PenaltyRecord = {
@@ -89,23 +101,17 @@ export class PeerManager {
   }
 
   private clearConnectionBackoff(address: string): void {
-    const penaltyKey = this.toPenaltyKey(address);
-    if (!penaltyKey) {
+    const penalty = this.getOrCreatePenalty(address);
+    if (!penalty) {
       return;
     }
 
-    const penalty = this.getOrCreatePenalty(penaltyKey);
     penalty.failureCount = 0;
     delete penalty.lastFailureAt;
   }
 
   private isBlacklisted(address: string, now = Date.now()): boolean {
-    const penaltyKey = this.toPenaltyKey(address);
-    if (!penaltyKey) {
-      return false;
-    }
-
-    const penalty = this.penalties.get(penaltyKey);
+    const penalty = this.getPenalty(address);
     if (!penalty?.blacklistedExpiresAt) {
       return false;
     }
@@ -157,12 +163,7 @@ export class PeerManager {
   }
 
   private isHostAllowedToConnect(peer: string, now = Date.now()): boolean {
-    const penaltyKey = this.toPenaltyKey(peer);
-    if (!penaltyKey) {
-      return true;
-    }
-
-    const penalty = this.penalties.get(penaltyKey);
+    const penalty = this.getPenalty(peer);
     if (!penalty) {
       return true;
     }
@@ -345,12 +346,11 @@ export class PeerManager {
   }
 
   async reportConnectionFailure(address: string): Promise<void> {
-    const penaltyKey = this.toPenaltyKey(address);
-    if (!penaltyKey) {
+    const penalty = this.getOrCreatePenalty(address);
+    if (!penalty) {
       return;
     }
 
-    const penalty = this.getOrCreatePenalty(penaltyKey);
     penalty.failureCount += 1;
     penalty.lastFailureAt = Date.now();
 
@@ -361,19 +361,19 @@ export class PeerManager {
   }
 
   async reportInvalidPeerMessage(peer: string, reason: string): Promise<void> {
-    const penaltyKey = this.toPenaltyKey(peer);
-    if (!penaltyKey) {
+    const penalty = this.getOrCreatePenalty(peer);
+    if (!penalty) {
       this.logger.warn(`Unknown peer ${peer} sent invalid data: ${reason}`);
       return;
     }
 
-    const penalty = this.getOrCreatePenalty(penaltyKey);
     penalty.invalidMessageCount += 1;
     this.logger.warn(
       `Peer ${peer} sent invalid data (${penalty.invalidMessageCount}): ${reason}`,
     );
 
     if (penalty.invalidMessageCount >= INVALID_MESSAGE_THRESHOLD) {
+      const penaltyKey = this.toPenaltyKey(peer);
       const ttlMs =
         Math.pow(2, penalty.invalidMessageCount) *
         INVALID_MESSAGE_BLACKLIST_TTL;

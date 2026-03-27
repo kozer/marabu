@@ -1,6 +1,7 @@
 import type { UtxoKey, UtxoRows, UtxoSnapshot } from "@/protocol/types";
 import { DEFAULT_DB_PATH } from "@/shared/constants";
 import { Level } from "level";
+import type pino from "pino";
 
 export interface UtxoStoreInterface {
   key(txid: string, index: number): UtxoKey;
@@ -13,9 +14,11 @@ export interface UtxoStoreInterface {
 
 class UtxoStore implements UtxoStoreInterface {
   private readonly db: Level<string, UtxoRows>;
-  constructor(db?: Level<string, UtxoRows>) {
+  private readonly logger: pino.Logger;
+  constructor(logger: pino.Logger, db?: Level<string, UtxoRows>) {
     this.db =
       db || new Level(`${DEFAULT_DB_PATH}/utxos`, { valueEncoding: "json" });
+    this.logger = logger;
   }
   key(txid: string, index: number): UtxoKey {
     return `${txid}:${index}`;
@@ -40,6 +43,9 @@ class UtxoStore implements UtxoStoreInterface {
         rows.map((entry) => [this.key(entry.txid, entry.index), entry]),
       );
     } catch (err) {
+      this.logger.error(
+        `Error getting UTXO snapshot for block ${blockId}: ${(err as Error).message}`,
+      );
       return null;
     }
   }

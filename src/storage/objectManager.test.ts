@@ -8,6 +8,13 @@ import {
   TARGET,
 } from "@/protocol/types";
 import type { ObjectData, ObjectMessage } from "@/protocol/types";
+const logger = {
+  info: (..._args: any[]) => {},
+  error: (..._args: any[]) => {},
+  debug: (..._args: any[]) => {},
+  warn: (..._args: any[]) => {},
+};
+
 function createObject(pubkey: string, value: number): ObjectMessage {
   return {
     type: MessageType.OBJECT,
@@ -28,7 +35,7 @@ function createManager(initialObjects: ObjectData[] = []) {
     },
   } as any;
 
-  const manager = new ObjectManager(db);
+  const manager = new ObjectManager(logger as any, db);
 
   for (const object of initialObjects) {
     store.set(manager.id(object), object);

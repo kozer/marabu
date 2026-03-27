@@ -45,7 +45,7 @@ function createObjectManager(initialObjects: ObjectData[] = []) {
     },
   } as any;
 
-  const manager = new ObjectManager(db);
+  const manager = new ObjectManager(logger as any, db);
   for (const object of initialObjects) {
     store.set(manager.id(object), object);
   }

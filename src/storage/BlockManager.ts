@@ -12,14 +12,13 @@ import {
 import type { ObjectManagerInterface } from "./objectManager";
 import type UtxoStore from "./UtxoStore";
 import ProtocolError from "@/protocol/error";
+import type { PeerManager } from "@/peers/peerManager";
+import type pino from "pino";
 
 export interface BlockManagerInterface {
   getUtxoSet(blockId: string | null): Promise<UtxoSnapshot | null>;
   getBlock(blockId: string): Promise<BlockMessage | null>;
-  getBlockTransactions(
-    block: BlockMessage,
-    connection: Connection,
-  ): Promise<TransactionMessage[]>;
+  getBlockTransactions(block: BlockMessage): Promise<TransactionMessage[]>;
   storeValidatedBlock(result: ValidatedBlock): Promise<void>;
   close(): Promise<void>;
 }
@@ -28,6 +27,8 @@ class BlockManager implements BlockManagerInterface {
   constructor(
     private readonly objectManager: ObjectManagerInterface,
     private readonly utxoStore: UtxoStore,
+    private readonly peerManager: PeerManager,
+    private readonly logger: pino.Logger,
   ) {}
   async getUtxoSet(blockId: string | null): Promise<UtxoSnapshot | null> {
     if (blockId === null) {
@@ -49,13 +50,12 @@ class BlockManager implements BlockManagerInterface {
   }
   async getBlockTransactions(
     block: BlockMessage,
-    connection: Connection,
   ): Promise<TransactionMessage[]> {
     try {
       const resolvedTxs = await Promise.all(
         block.txids.map((txid) =>
-          connection.ctx.objectManager.findObject(txid, (id) =>
-            connection.ctx.peerManager.broadcast({
+          this.objectManager.findObject(txid, (id) =>
+            this.peerManager.broadcast({
               type: MessageType.GET_OBJECT,
               objectid: id,
             }),
@@ -65,7 +65,7 @@ class BlockManager implements BlockManagerInterface {
       return resolvedTxs.map((obj) => {
         if (obj.type !== ObjectType.TRANSACTION) {
           // Should this happen?
-          connection.log.error(
+          this.logger.error(
             `Expected transaction object but found object of type ${obj.type}`,
           );
           throw new Error("Expected transaction object but found block object");

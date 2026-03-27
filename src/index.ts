@@ -31,10 +31,17 @@ export async function startNode(opts?: NodeOptions): Promise<NodeHandle> {
   await peerManager.load();
   const server = createServer();
   const objectsDb = new Level(`${dbPath}/objects`, { valueEncoding: "json" });
-  const utxosDb = new Level<string, UtxoRows>(`${dbPath}/utxos`, { valueEncoding: "json" });
-  const objectManager = new ObjectManager(objectsDb);
-  const utxoStore = new UtxoStore(utxosDb);
-  const blockManager = new BlockManager(objectManager, utxoStore);
+  const utxosDb = new Level<string, UtxoRows>(`${dbPath}/utxos`, {
+    valueEncoding: "json",
+  });
+  const objectManager = new ObjectManager(logger, objectsDb);
+  const utxoStore = new UtxoStore(logger, utxosDb);
+  const blockManager = new BlockManager(
+    objectManager,
+    utxoStore,
+    peerManager,
+    logger,
+  );
   // TODO: Remove after PSET 3.
   await blockManager.seedGenesis(GENESIS_BLOCK, GENESIS_BLOCK_ID);
 
