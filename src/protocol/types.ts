@@ -187,10 +187,7 @@ export const BlockSchema = z.looseObject({
   txids: z.array(z.hex().length(64)),
 });
 
-export const ObjectDataSchema = z.discriminatedUnion("type", [
-  TransactionSchema,
-  BlockSchema,
-]);
+export const ObjectDataSchema = z.discriminatedUnion("type", [TransactionSchema, BlockSchema]);
 
 export const ObjectMessageSchema = z.object({
   type: z.literal(MessageType.OBJECT),
@@ -259,7 +256,7 @@ export type RegularTxAmounts = {
   outputValue: number;
   fee: number;
 };
-export type RegularTxValidationResult = {
+export type TxValidationResult = {
   resolvedInputs: ResolvedInput[];
   inputValue: number;
   outputValue: number;

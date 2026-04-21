@@ -1,4 +1,11 @@
+import {
+  checkCoinbaseFormat,
+  isCoinbaseCandidate,
+  validateBlock,
+} from "@/protocol/block.validator";
 import ProtocolError from "@/protocol/error";
+import { validatePeers } from "@/protocol/peer.validator";
+import { validateTx } from "@/protocol/transaction.validator";
 import { ErrorCode, MessageType, ObjectType } from "@/protocol/types";
 import type {
   ValidMessage,
@@ -15,28 +22,16 @@ import type {
   GetObjectMessage,
   ObjectMessage,
 } from "@/protocol/types";
-import {
-  checkCoinbaseFormat,
-  isCoinbaseCandidate,
-  validateBlock,
-  validatePeers,
-  validateRegularTx,
-} from "@/protocol/validator";
 
 export const helloHandler = async (message: HelloMessage) => {
-  console.log(
-    `Received HELLO message from ${message.agent} v${message.version}`,
-  );
+  console.log(`Received HELLO message from ${message.agent} v${message.version}`);
 };
 
 export const textHandler = async (message: TextMessage) => {
   console.log(`Received TEXT message: ${message.text}`);
 };
 
-export const getPeersHandler = async (
-  _message: GetPeersMessage,
-  connection: Connection,
-) => {
+export const getPeersHandler = async (_message: GetPeersMessage, connection: Connection) => {
   console.log(`Received GET_PEERS message`);
   connection.send({
     type: MessageType.PEERS,
@@ -44,10 +39,7 @@ export const getPeersHandler = async (
   });
 };
 
-export const peersHandler = async (
-  message: PeersMessage,
-  connection: Connection,
-) => {
+export const peersHandler = async (message: PeersMessage, connection: Connection) => {
   validatePeers(message, connection);
   const newPeers = [];
   for (const peer of message.peers) {
@@ -59,28 +51,17 @@ export const peersHandler = async (
   await connection.ctx.peerManager.addKnownPeers(newPeers, connection.id);
 };
 
-export const errorHandler = async (
-  message: ErrorMessage,
-  connection: Connection,
-) => {
-  connection.log.error(
-    `Received error from client: ${message.name} - ${message.description}`,
-  );
+export const errorHandler = async (message: ErrorMessage, connection: Connection) => {
+  connection.log.error(`Received error from client: ${message.name} - ${message.description}`);
 };
 
-export const getMempoolHandler = async (
-  _message: GetMempoolMessage,
-  connection: Connection,
-) => {
+export const getMempoolHandler = async (_message: GetMempoolMessage, connection: Connection) => {
   connection.log.info(
     `Received request for mempool from ${connection.id}, but this functionality is not implemented yet.`,
   );
 };
 
-export const memPoolHandler = async (
-  message: MempoolMessage,
-  connection: Connection,
-) => {
+export const memPoolHandler = async (message: MempoolMessage, connection: Connection) => {
   connection.log.info(
     `Received mempool message from ${connection.id} with txids: ${message.txids.join(", ")}, but this functionality is not implemented yet.`,
   );
@@ -90,19 +71,13 @@ export const memPoolHandler = async (
   });
 };
 
-export const getChainTipHandler = async (
-  _message: GetChainTipMessage,
-  connection: Connection,
-) => {
+export const getChainTipHandler = async (_message: GetChainTipMessage, connection: Connection) => {
   connection.log.info(
     `Received request for chain tip from ${connection.id}, but this functionality is not implemented yet.`,
   );
 };
 
-export const iHaveObjectHandler = async (
-  message: IHaveObjectMessage,
-  connection: Connection,
-) => {
+export const iHaveObjectHandler = async (message: IHaveObjectMessage, connection: Connection) => {
   let hasObject = false;
   try {
     await connection.ctx.objectManager.get(message.objectid);
@@ -117,10 +92,7 @@ export const iHaveObjectHandler = async (
   }
 };
 
-export const getObjectHandler = async (
-  message: GetObjectMessage,
-  connection: Connection,
-) => {
+export const getObjectHandler = async (message: GetObjectMessage, connection: Connection) => {
   try {
     const obj = await connection.ctx.objectManager.get(message.objectid);
     if (obj) {
@@ -134,17 +106,11 @@ export const getObjectHandler = async (
     connection.log.error(`Error retrieving object ${message.objectid}: ${e}`);
   }
   connection.send(
-    new ProtocolError(
-      ErrorCode.UNFINDABLE_OBJECT,
-      `Object ${message.objectid} not found`,
-    ),
+    new ProtocolError(ErrorCode.UNFINDABLE_OBJECT, `Object ${message.objectid} not found`),
   );
 };
 
-export const objectHandler = async (
-  message: ObjectMessage,
-  connection: Connection,
-) => {
+export const objectHandler = async (message: ObjectMessage, connection: Connection) => {
   const objId = connection.ctx.objectManager.id(message.object);
   try {
     await connection.ctx.objectManager.get(objId);
@@ -164,7 +130,7 @@ export const objectHandler = async (
       }
     } else {
       try {
-        await validateRegularTx(message.object, connection);
+        await validateTx(message.object, connection);
       } catch (e) {
         if (e instanceof ProtocolError) {
           connection.send(e);
@@ -204,10 +170,7 @@ export const objectHandler = async (
   );
 };
 
-type GenericHandler = (
-  message: ValidMessage,
-  connection: Connection,
-) => Promise<void>;
+type GenericHandler = (message: ValidMessage, connection: Connection) => Promise<void>;
 
 export const messageHandlers: Record<
   MessageType,

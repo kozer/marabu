@@ -3,12 +3,7 @@ import canonicalize from "canonicalize";
 import { blake2s } from "@noble/hashes/blake2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import ProtocolError from "@/protocol/error";
-import {
-  ErrorCode,
-  MessageType,
-  ObjectType,
-  type ObjectData,
-} from "@/protocol/types";
+import { ErrorCode, MessageType, ObjectType, type ObjectData } from "@/protocol/types";
 import type {
   BlockMessage,
   Connection,
@@ -18,21 +13,21 @@ import type {
   TransactionMessage,
   UtxoSnapshot,
 } from "./types";
-import {
-  getTxAmounts,
-  validatePeers,
-  resolveInputs,
-  validateOutpoints,
-  validateRegularTx,
-  verifyLawOfConservationForRegularTx,
-  verifySignatures,
-  validateBlock,
-} from "./validator";
+import { validatePeers } from "./peer.validator";
 import {
   createTestPrivateKey,
   getPublicKeyHex,
   signTransaction,
 } from "@/test/transactionTestUtils";
+import {
+  getTxAmounts,
+  resolveInputs,
+  validateOutpoints,
+  validateTx,
+  verifyLawOfConservationForRegularTx,
+  verifySignatures,
+} from "./transaction.validator";
+import { validateBlock } from "./block.validator";
 
 const PREV_TX_ID = "11".repeat(32);
 const RECIPIENT_PUBKEY = "22".repeat(32);
@@ -103,10 +98,7 @@ function hash(obj: TransactionMessage | BlockMessage): string {
   return bytesToHex(blake2s(Buffer.from(canonical, "utf-8")));
 }
 
-async function expectProtocolError(
-  promise: Promise<unknown>,
-  code: ErrorCode,
-): Promise<void> {
+async function expectProtocolError(promise: Promise<unknown>, code: ErrorCode): Promise<void> {
   try {
     await promise;
     throw new Error(`Expected ProtocolError with code ${code}`);
@@ -120,15 +112,13 @@ let senderPrivateKey: Uint8Array;
 let senderPubkeyHex: string;
 let previousTxObject: TransactionMessage;
 
-const PSET2_COINBASE_ID =
-  "b303d841891f91af118a319f99f5984def51091166ac73c062c98f86ea7371ee";
+const PSET2_COINBASE_ID = "b303d841891f91af118a319f99f5984def51091166ac73c062c98f86ea7371ee";
 const PSET2_COINBASE: TransactionMessage = {
   type: ObjectType.TRANSACTION,
   height: 0,
   outputs: [
     {
-      pubkey:
-        "958f8add086cc348e229a3b6590c71b7d7754e42134a127a50648bf07969d9a0",
+      pubkey: "958f8add086cc348e229a3b6590c71b7d7754e42134a127a50648bf07969d9a0",
       value: 50000000000,
     },
   ],
@@ -146,31 +136,27 @@ const PSET2_VALID_SPEND: TransactionMessage = {
   ],
   outputs: [
     {
-      pubkey:
-        "958f8add086cc348e229a3b6590c71b7d7754e42134a127a50648bf07969d9a0",
+      pubkey: "958f8add086cc348e229a3b6590c71b7d7754e42134a127a50648bf07969d9a0",
       value: 10,
     },
   ],
 };
 
-const PSET3_BLOCK_TX_ID =
-  "69de2ed6155a71bd28d78ef418b60b3b239014337b85bc996b4389ab8d017bcf";
+const PSET3_BLOCK_TX_ID = "69de2ed6155a71bd28d78ef418b60b3b239014337b85bc996b4389ab8d017bcf";
 
 const PSET3_BLOCK_TX: TransactionMessage = {
   type: ObjectType.TRANSACTION,
   height: 1,
   outputs: [
     {
-      pubkey:
-        "B6A95D7B410AE1EB924898AE584D21523B53AA5A78D1BC54ABE964FD8E63F487",
+      pubkey: "B6A95D7B410AE1EB924898AE584D21523B53AA5A78D1BC54ABE964FD8E63F487",
       value: 50000000000000,
     },
   ],
 };
 // Hardcode the production genesis ID so the block hash (and therefore PoW)
 // stays correct regardless of NODE_ENV / isTest flag.
-const PROD_GENESIS_BLOCK_ID =
-  "00000000522473196b73bc619a8b18472c4cb4c6caf785a13fa32aaae7222ff6";
+const PROD_GENESIS_BLOCK_ID = "00000000522473196b73bc619a8b18472c4cb4c6caf785a13fa32aaae7222ff6";
 
 const PSET3_VALID_BLOCK: BlockMessage = {
   T: "00000000abc00000000000000000000000000000000000000000000000000000",
@@ -416,10 +402,7 @@ describe("verifySignatures", () => {
       },
     ];
 
-    await expectProtocolError(
-      verifySignatures(tx, resolvedInputs),
-      ErrorCode.INVALID_TX_SIGNATURE,
-    );
+    await expectProtocolError(verifySignatures(tx, resolvedInputs), ErrorCode.INVALID_TX_SIGNATURE);
   });
 
   test("throws INVALID_TX_SIGNATURE for invalid signatures", async () => {
@@ -441,10 +424,7 @@ describe("verifySignatures", () => {
       },
     ];
 
-    await expectProtocolError(
-      verifySignatures(tx, resolvedInputs),
-      ErrorCode.INVALID_TX_SIGNATURE,
-    );
+    await expectProtocolError(verifySignatures(tx, resolvedInputs), ErrorCode.INVALID_TX_SIGNATURE);
   });
 });
 
@@ -474,9 +454,7 @@ describe("verifyLawOfConservation", () => {
         resolvedOutput: { pubkey: senderPubkeyHex, value: 5 },
       },
     ];
-    const newOutputs: OutputTransactionMessage[] = [
-      { pubkey: RECIPIENT_PUBKEY, value: 6 },
-    ];
+    const newOutputs: OutputTransactionMessage[] = [{ pubkey: RECIPIENT_PUBKEY, value: 6 }];
     const txAmounts = getTxAmounts(resolvedInputs, newOutputs);
 
     try {
@@ -484,9 +462,7 @@ describe("verifyLawOfConservation", () => {
       throw new Error("Expected INVALID_TX_CONSERVATION");
     } catch (error) {
       expect(error).toBeInstanceOf(ProtocolError);
-      expect((error as ProtocolError).name).toBe(
-        ErrorCode.INVALID_TX_CONSERVATION,
-      );
+      expect((error as ProtocolError).name).toBe(ErrorCode.INVALID_TX_CONSERVATION);
     }
   });
 });
@@ -500,10 +476,7 @@ describe("validateRegularTx", () => {
       outputs: [{ pubkey: senderPubkeyHex, value: 50 }],
     };
 
-    await expectProtocolError(
-      validateRegularTx(coinbase, ctx),
-      ErrorCode.INVALID_FORMAT,
-    );
+    await expectProtocolError(validateTx(coinbase, ctx), ErrorCode.INVALID_FORMAT);
   });
 
   test("throws INVALID_FORMAT for non-coinbase transactions without inputs", async () => {
@@ -513,10 +486,7 @@ describe("validateRegularTx", () => {
       outputs: [{ pubkey: senderPubkeyHex, value: 50 }],
     } as TransactionMessage;
 
-    await expectProtocolError(
-      validateRegularTx(malformedTx, ctx),
-      ErrorCode.INVALID_FORMAT,
-    );
+    await expectProtocolError(validateTx(malformedTx, ctx), ErrorCode.INVALID_FORMAT);
   });
 
   test("accepts a valid signed non-coinbase transaction", async () => {
@@ -534,7 +504,7 @@ describe("validateRegularTx", () => {
 
     tx.inputs![0]!.sig = await signTransaction(tx, senderPrivateKey);
 
-    expect(!!(await validateRegularTx(tx, ctx))).toBe(true);
+    expect(!!(await validateTx(tx, ctx))).toBe(true);
   });
 
   test("accepts PSET2 transaction example", async () => {
@@ -544,7 +514,7 @@ describe("validateRegularTx", () => {
       },
     });
 
-    expect(!!(await validateRegularTx(PSET2_VALID_SPEND, ctx))).toBe(true);
+    expect(!!(await validateTx(PSET2_VALID_SPEND, ctx))).toBe(true);
   });
 
   test("rejects a tampered PSET2 signature", async () => {
@@ -561,10 +531,7 @@ describe("validateRegularTx", () => {
       })),
     };
 
-    await expectProtocolError(
-      validateRegularTx(tamperedTx, ctx),
-      ErrorCode.INVALID_TX_SIGNATURE,
-    );
+    await expectProtocolError(validateTx(tamperedTx, ctx), ErrorCode.INVALID_TX_SIGNATURE);
   });
 });
 
