@@ -12,6 +12,7 @@ import type {
   OutputTransactionMessage,
   TransactionMessage,
   UtxoSnapshot,
+  PeerContext,
 } from "./types";
 import { validatePeers } from "./peer.validator";
 import {
@@ -20,14 +21,15 @@ import {
   signTransaction,
 } from "@/test/transactionTestUtils";
 import {
-  getTxAmounts,
+  calculateFees,
   resolveInputs,
   validateOutpoints,
-  validateTx,
   verifyLawOfConservationForRegularTx,
   verifySignatures,
 } from "./transaction.validator";
-import { validateBlock } from "./block.validator";
+import type pino from "pino";
+import { TransactionManager } from "@/storage/TransactionManager";
+import BlockManager from "@/storage/BlockManager";
 
 const PREV_TX_ID = "11".repeat(32);
 const RECIPIENT_PUBKEY = "22".repeat(32);
@@ -37,56 +39,71 @@ const logger = {
   error: (..._args: any[]) => {},
   debug: (..._args: any[]) => {},
   warn: (..._args: any[]) => {},
-};
+} as unknown as pino.Logger;
 
-function createContext(args: {
-  objects?: Record<string, ObjectData>;
-  blockTxs?: TransactionMessage[];
+function createFakeBlockManager(args: {
   parentUtxo?: UtxoSnapshot | null;
-}): Connection {
-  const ctx: ConnectedPeerContext = {
-    id: "peer-1",
-    peerManager: {
-      broadcast: () => {},
-    } as any,
-    logger,
-    objectManager: {
-      put: async () => {},
-      get: async (key: string) => args.objects?.[key] ?? null,
-      id: (obj: unknown) => {
-        const typed = obj as { type?: string };
-        if (typed.type === ObjectType.BLOCK) {
-          return hash(obj as BlockMessage);
-        }
-        return hash(obj as TransactionMessage);
-      },
-    } as any,
-    blockManager: {
-      async getUtxoSet(_blockId: string | null): Promise<any> {
-        return args.parentUtxo ?? null;
-      },
-      async getBlock(_blockId: string): Promise<any> {
-        return null;
-      },
-      async getBlockTransactions(_block: any, _ctx: any): Promise<any[]> {
-        return args.blockTxs ?? [];
-      },
-      async storeAccepted(_result: any): Promise<void> {
-        return;
-      },
-    } as any,
-  };
-
-  return {
-    send: () => {},
-    ctx,
-    id: ctx.id,
-    log: logger,
-  };
+  blockTxs?: TransactionMessage[];
+  objects?: Record<string, ObjectData>;
+  peerManager?: any;
+}) {
+  const objectManager = {
+    get: async (key: string) => args.objects?.[key] ?? null,
+    id: (obj: unknown) => {
+      const typed = obj as { type?: string };
+      if (typed.type === ObjectType.BLOCK) return hash(obj as BlockMessage);
+      return hash(obj as TransactionMessage);
+    },
+    exists: async () => true,
+    put: async () => {},
+    findObject: async (id: string) => {
+      const tx = args.blockTxs?.find((tx) => hash(tx) === id);
+      if (tx) return tx;
+      throw new Error(`Object ${id} not found`);
+    },
+    close: async () => {},
+  } as any;
+  const utxoStore = {
+    empty: () => new Map(),
+    clone: (snap: UtxoSnapshot | null) => new Map(snap ?? []),
+    has: async () => true,
+    get: async (blockId: string) => {
+      if (blockId === null) return new Map();
+      return args.parentUtxo ?? null;
+    },
+    put: async () => {},
+    close: async () => {},
+    key: (txid: string, index: number) => `${txid}:${index}`,
+  } as any;
+  const peerManager = {
+    broadcast: () => {},
+    getPeersForAdvertisement: () => [],
+    getKnownPeerSet: () => new Set<string>(),
+    addKnownPeers: async () => {},
+    canAcceptInbound: () => true,
+    registerInboundConnection: () => {},
+    registerOutboundConnection: () => {},
+    unregisterConnection: () => {},
+    reportConnectionFailure: async () => {},
+    reportInvalidPeerMessage: async () => {},
+    outboundConnectionCount: 0,
+    totalConnections: 0,
+    getOutboundCandidates: () => [],
+  } as any;
+  const txManager = new TransactionManager(objectManager, peerManager, logger as any);
+  return new BlockManager(objectManager, utxoStore, peerManager, txManager, logger as any);
 }
 
-function toHex(bytes: Uint8Array): string {
-  return Buffer.from(bytes).toString("hex");
+function createDeps(objects?: Record<string, ObjectData>) {
+  const objectManager = {
+    get: async (key: string) => objects?.[key] ?? null,
+    put: async () => {},
+    close: async () => {},
+  } as any;
+  const peerManager = {
+    broadcast: () => {},
+  } as any;
+  return { objectManager, peerManager };
 }
 
 function hash(obj: TransactionMessage | BlockMessage): string {
@@ -180,82 +197,60 @@ beforeAll(async () => {
 });
 
 describe("validatePeers", () => {
-  const ctx = createContext({});
-
   test("accepts valid peer addresses", () => {
     expect(
-      validatePeers(
-        {
-          type: MessageType.PEERS,
-          peers: ["192.168.1.1:8080", "example.com:8080", "[::1]:8080"],
-        },
-        ctx,
-      ),
+      validatePeers({
+        type: MessageType.PEERS,
+        peers: ["192.168.1.1:8080", "example.com:8080", "[::1]:8080"],
+      }),
     ).toBe(true);
   });
 
   test("accepts trimmed peer strings from the network", () => {
     expect(
-      validatePeers(
-        {
-          type: MessageType.PEERS,
-          peers: ["95.179.185.24:59362\r\n"],
-        },
-        ctx,
-      ),
+      validatePeers({
+        type: MessageType.PEERS,
+        peers: ["95.179.185.24:59362\r\n"],
+      }),
     ).toBe(true);
   });
 
   test("throws INVALID_FORMAT for malformed peer addresses", () => {
     expect(() =>
-      validatePeers(
-        {
-          type: MessageType.PEERS,
-          peers: ["bad-peer"],
-        },
-        ctx,
-      ),
+      validatePeers({
+        type: MessageType.PEERS,
+        peers: ["bad-peer"],
+      }),
     ).toThrow(ProtocolError);
 
     expect(() =>
-      validatePeers(
-        {
-          type: MessageType.PEERS,
-          peers: ["bad-peer"],
-        },
-        ctx,
-      ),
+      validatePeers({
+        type: MessageType.PEERS,
+        peers: ["bad-peer"],
+      }),
     ).toThrow("Received message with invalid format");
   });
 
   test("throws INVALID_FORMAT for invalid peer ports", () => {
     expect(() =>
-      validatePeers(
-        {
-          type: MessageType.PEERS,
-          peers: ["192.168.1.1:65536"],
-        },
-        ctx,
-      ),
+      validatePeers({
+        type: MessageType.PEERS,
+        peers: ["192.168.1.1:65536"],
+      }),
     ).toThrow(ProtocolError);
 
     expect(() =>
-      validatePeers(
-        {
-          type: MessageType.PEERS,
-          peers: ["192.168.1.1:65536"],
-        },
-        ctx,
-      ),
+      validatePeers({
+        type: MessageType.PEERS,
+        peers: ["192.168.1.1:65536"],
+      }),
     ).toThrow("Received message with invalid format");
   });
 });
 
 describe("validateOutpoints", () => {
   test("resolves known outpoints", async () => {
-    const ctx = createContext({
-      objects: { [PREV_TX_ID]: previousTxObject },
-    });
+    const deps = createDeps({ [PREV_TX_ID]: previousTxObject });
     const inputs: InputTransactionMessage[] = [
       {
         outpoint: { txid: PREV_TX_ID, index: 0 },
@@ -263,7 +258,7 @@ describe("validateOutpoints", () => {
       },
     ];
 
-    const { resolvedInputs, txCache } = await resolveInputs(inputs, ctx);
+    const { resolvedInputs, txCache } = await resolveInputs(inputs, deps.objectManager);
     validateOutpoints(inputs, txCache);
 
     expect(resolvedInputs).toHaveLength(1);
@@ -271,7 +266,7 @@ describe("validateOutpoints", () => {
   });
 
   test("throws UNKNOWN_OBJECT when outpoint tx is missing", async () => {
-    const ctx = createContext({});
+    const deps = createDeps({});
     const inputs: InputTransactionMessage[] = [
       {
         outpoint: { txid: PREV_TX_ID, index: 0 },
@@ -279,7 +274,7 @@ describe("validateOutpoints", () => {
       },
     ];
 
-    const { txCache } = await resolveInputs(inputs, ctx);
+    const { txCache } = await resolveInputs(inputs, deps.objectManager);
     try {
       validateOutpoints(inputs, txCache);
       throw new Error("Expected ProtocolError");
@@ -290,7 +285,7 @@ describe("validateOutpoints", () => {
   });
 
   test("throws INVALID_TX_OUTPOINT when index is too large", async () => {
-    const ctx = createContext({ objects: { [PREV_TX_ID]: previousTxObject } });
+    const deps = createDeps({ [PREV_TX_ID]: previousTxObject });
     const inputs: InputTransactionMessage[] = [
       {
         outpoint: { txid: PREV_TX_ID, index: 1 },
@@ -298,7 +293,7 @@ describe("validateOutpoints", () => {
       },
     ];
 
-    const { txCache } = await resolveInputs(inputs, ctx);
+    const { txCache } = await resolveInputs(inputs, deps.objectManager);
     try {
       validateOutpoints(inputs, txCache);
       throw new Error("Expected ProtocolError");
@@ -310,36 +305,14 @@ describe("validateOutpoints", () => {
 
   test("fetches each unique txid only once", async () => {
     let getObjectCalls = 0;
-    const base = createContext({ objects: { [PREV_TX_ID]: previousTxObject } });
-    const connection: Connection = {
-      send: base.send,
-      id: base.id,
-      log: logger,
-      ctx: {
-        ...base.ctx,
-        objectManager: {
-          put: async () => {},
-          get: async (key: string) => {
-            getObjectCalls += 1;
-            return key === PREV_TX_ID ? previousTxObject : null;
-          },
-        } as any,
-        blockManager: {
-          async getUtxoSet(_blockId: string): Promise<any> {
-            return null;
-          },
-          async getBlock(_blockId: string): Promise<any> {
-            return null;
-          },
-          async getBlockTransactions(_block: any, _ctx: any): Promise<any[]> {
-            return [];
-          },
-          async storeAccepted(_result: any): Promise<void> {
-            return;
-          },
-        } as any,
+
+    const objectManager = {
+      put: async () => {},
+      get: async (key: string) => {
+        getObjectCalls += 1;
+        return key === PREV_TX_ID ? previousTxObject : null;
       },
-    };
+    } as any;
 
     const inputs: InputTransactionMessage[] = [
       {
@@ -352,7 +325,7 @@ describe("validateOutpoints", () => {
       },
     ];
 
-    await resolveInputs(inputs, connection);
+    await resolveInputs(inputs, objectManager);
     expect(getObjectCalls).toBe(1);
   });
 });
@@ -441,7 +414,7 @@ describe("verifyLawOfConservation", () => {
       { pubkey: RECIPIENT_PUBKEY, value: 10 },
       { pubkey: senderPubkeyHex, value: 40 },
     ];
-    const txAmounts = getTxAmounts(resolvedInputs, newOutputs);
+    const txAmounts = calculateFees(resolvedInputs, newOutputs);
 
     expect(verifyLawOfConservationForRegularTx(txAmounts)).toBe(true);
   });
@@ -455,7 +428,7 @@ describe("verifyLawOfConservation", () => {
       },
     ];
     const newOutputs: OutputTransactionMessage[] = [{ pubkey: RECIPIENT_PUBKEY, value: 6 }];
-    const txAmounts = getTxAmounts(resolvedInputs, newOutputs);
+    const txAmounts = calculateFees(resolvedInputs, newOutputs);
 
     try {
       verifyLawOfConservationForRegularTx(txAmounts);
@@ -469,28 +442,30 @@ describe("verifyLawOfConservation", () => {
 
 describe("validateRegularTx", () => {
   test("throws INVALID_FORMAT for coinbase transactions", async () => {
-    const ctx = createContext({});
+    const deps = createDeps({});
     const coinbase: TransactionMessage = {
       type: ObjectType.TRANSACTION,
       height: 0,
       outputs: [{ pubkey: senderPubkeyHex, value: 50 }],
     };
+    const transactionManager = new TransactionManager(deps.objectManager, deps.peerManager, logger);
 
-    await expectProtocolError(validateTx(coinbase, ctx), ErrorCode.INVALID_FORMAT);
+    await expectProtocolError(transactionManager.validateTx(coinbase), ErrorCode.INVALID_FORMAT);
   });
 
   test("throws INVALID_FORMAT for non-coinbase transactions without inputs", async () => {
-    const ctx = createContext({});
+    const deps = createDeps({});
     const malformedTx = {
       type: ObjectType.TRANSACTION,
       outputs: [{ pubkey: senderPubkeyHex, value: 50 }],
     } as TransactionMessage;
 
-    await expectProtocolError(validateTx(malformedTx, ctx), ErrorCode.INVALID_FORMAT);
+    const transactionManager = new TransactionManager(deps.objectManager, deps.peerManager, logger);
+    await expectProtocolError(transactionManager.validateTx(malformedTx), ErrorCode.INVALID_FORMAT);
   });
 
   test("accepts a valid signed non-coinbase transaction", async () => {
-    const ctx = createContext({ objects: { [PREV_TX_ID]: previousTxObject } });
+    const deps = createDeps({ [PREV_TX_ID]: previousTxObject });
     const tx: TransactionMessage = {
       type: ObjectType.TRANSACTION,
       inputs: [
@@ -503,25 +478,23 @@ describe("validateRegularTx", () => {
     };
 
     tx.inputs![0]!.sig = await signTransaction(tx, senderPrivateKey);
+    const transactionManager = new TransactionManager(deps.objectManager, deps.peerManager, logger);
 
-    expect(!!(await validateTx(tx, ctx))).toBe(true);
+    expect(!!(await transactionManager.validateTx(tx))).toBe(true);
   });
 
   test("accepts PSET2 transaction example", async () => {
-    const ctx = createContext({
-      objects: {
-        [PSET2_COINBASE_ID]: PSET2_COINBASE,
-      },
+    const deps = createDeps({
+      [PSET2_COINBASE_ID]: PSET2_COINBASE,
     });
+    const transactionManager = new TransactionManager(deps.objectManager, deps.peerManager, logger);
 
-    expect(!!(await validateTx(PSET2_VALID_SPEND, ctx))).toBe(true);
+    expect(!!(await transactionManager.validateTx(PSET2_VALID_SPEND))).toBe(true);
   });
 
   test("rejects a tampered PSET2 signature", async () => {
-    const ctx = createContext({
-      objects: {
-        [PSET2_COINBASE_ID]: PSET2_COINBASE,
-      },
+    const deps = createDeps({
+      [PSET2_COINBASE_ID]: PSET2_COINBASE,
     });
     const tamperedTx: TransactionMessage = {
       ...PSET2_VALID_SPEND,
@@ -530,8 +503,12 @@ describe("validateRegularTx", () => {
         sig: index === 0 ? `1${input.sig!.slice(1)}` : input.sig,
       })),
     };
+    const transactionManager = new TransactionManager(deps.objectManager, deps.peerManager, logger);
 
-    await expectProtocolError(validateTx(tamperedTx, ctx), ErrorCode.INVALID_TX_SIGNATURE);
+    await expectProtocolError(
+      transactionManager.validateTx(tamperedTx),
+      ErrorCode.INVALID_TX_SIGNATURE,
+    );
   });
 });
 
@@ -543,21 +520,27 @@ describe("PSET2 transaction vector", () => {
 
 describe("validateBlock", () => {
   test("returns null when parent UTXO is missing", async () => {
-    const ctx = createContext({
+    const blockManager = createFakeBlockManager({
       parentUtxo: null,
       blockTxs: [PSET3_BLOCK_TX],
     });
-    expect(validateBlock(PSET3_VALID_BLOCK, ctx)).resolves.toBeNull();
+    expect(
+      blockManager.validateBlock(PSET3_VALID_BLOCK, {
+        send: async () => {},
+      } as unknown as Connection),
+    ).resolves.toBeNull();
   });
   test("matches the documented PSET3 coinbase txid", () => {
     expect(hash(PSET3_BLOCK_TX)).toBe(PSET3_BLOCK_TX_ID);
   });
   test("accepts the documented block mined on genesis", async () => {
-    const ctx = createContext({
+    const blockManager = createFakeBlockManager({
       parentUtxo: new Map(),
       blockTxs: [PSET3_BLOCK_TX],
     });
-    const result = await validateBlock(PSET3_VALID_BLOCK, ctx);
+    const result = await blockManager.validateBlock(PSET3_VALID_BLOCK, {
+      send: async () => {},
+    } as unknown as Connection);
     expect(result).not.toBeNull();
     expect(result?.blockId).toBe(hash(PSET3_VALID_BLOCK));
     expect(result?.utxoSetAfterTxApply.get(`${PSET3_BLOCK_TX_ID}:0`)).toEqual({

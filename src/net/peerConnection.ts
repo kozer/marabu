@@ -2,7 +2,6 @@ import { Socket } from "net";
 import { SEPARATOR } from "@/shared/constants";
 import ProtocolError from "@/protocol/error";
 import { checkHandshake, type ConnectionState } from "@/net/handshake";
-import { messageHandlers } from "@/net/messageHandlers";
 import { parseMessage } from "@/net/messageParser";
 import {
   MessageType,
@@ -29,10 +28,6 @@ export class PeerConnection implements Connection {
 
   get id(): string {
     return this._ctx.id;
-  }
-
-  get ctx(): ConnectedPeerContext {
-    return this._ctx;
   }
 
   get log(): PeerContext["logger"] {
@@ -130,7 +125,7 @@ export class PeerConnection implements Connection {
 
       let message: ValidMessage | null = null;
       try {
-        message = await parseMessage(rawMessage, this);
+        message = await parseMessage(rawMessage, this._ctx);
         if (!message) {
           return;
         }
@@ -138,18 +133,8 @@ export class PeerConnection implements Connection {
         if (!checkHandshake(message, this.state)) {
           return;
         }
-
-        const handler = messageHandlers[message.type];
-        if (!handler) {
-          this.log.error(`No handler found for message type: ${message.type}`);
-          continue;
-        }
-
-        await handler(message, this);
-        this.log.info(
-          { type: message.type },
-          `[${this._ctx.id}]: Received message`,
-        );
+        await this._ctx.dispatcher.dispatch(message, this);
+        this.log.info({ type: message.type }, `[${this._ctx.id}]: Received message`);
       } catch (error) {
         this.onHandleError(error as Error);
       }

@@ -1,11 +1,4 @@
-import {
-  expect,
-  test,
-  describe,
-  beforeAll,
-  afterAll,
-  beforeEach,
-} from "bun:test";
+import { expect, test, describe, beforeAll, afterAll, beforeEach } from "bun:test";
 import { createServer, Socket, type AddressInfo } from "net";
 import { handleInboundConnection } from "@/net/connection";
 import { PeerManager } from "@/peers/peerManager";
@@ -26,6 +19,9 @@ import {
   getPublicKeyHex,
   signTransaction,
 } from "@/test/transactionTestUtils";
+import { MessageDispatcher } from "./net/MessageDispatcher";
+import { TransactionManager } from "@/storage/TransactionManager";
+import type pino from "pino";
 
 // Simple mock logger for tests to avoid pino-pretty keeping process alive
 const logger = {
@@ -60,15 +56,25 @@ const blockManager = {
   async getBlock(_blockId: string): Promise<any> {
     return null;
   },
-  async getBlockTransactions(_block: any, _ctx: any): Promise<any[]> {
+  async getBlockTransactions(_block: any): Promise<any[]> {
     return [];
   },
   async storeAccepted(_result: any): Promise<void> {
     return;
   },
+  async handleIncoming(_block: any, _conn: any) {
+    return undefined;
+  },
+  async validateBlock(_block: any, _conn: any) {
+    return null;
+  },
+  async close(): Promise<void> {
+    return;
+  },
 } as any;
 
 let objectManager = createObjectManager().manager;
+let transactionManager: TransactionManager;
 let testPort = 18018;
 
 function connectToNode(port: number = testPort): Promise<Socket> {
@@ -133,10 +139,7 @@ async function createValidTransactionForNode() {
   };
 }
 
-function receiveMessages(
-  socket: Socket,
-  timeout: number = 1000,
-): Promise<any[]> {
+function receiveMessages(socket: Socket, timeout: number = 1000): Promise<any[]> {
   return new Promise((resolve) => {
     const messages: any[] = [];
     let buffer = "";
@@ -189,10 +192,7 @@ function closeSocket(socket: Socket): Promise<void> {
   });
 }
 
-function waitForSocketClose(
-  socket: Socket,
-  timeout: number = 500,
-): Promise<boolean> {
+function waitForSocketClose(socket: Socket, timeout: number = 500): Promise<boolean> {
   return new Promise((resolve) => {
     if (socket.destroyed || socket.closed) {
       resolve(true);
@@ -235,12 +235,15 @@ describe("Test node functionality", () => {
     server = createServer();
     server.on("connection", (socket: Socket) => {
       const id = `${socket.remoteAddress}:${socket.remotePort}`;
+      const messageDispatcher = new MessageDispatcher(
+        { block: blockManager, tx: transactionManager, peer: peerManager, object: objectManager },
+        logger as unknown as pino.Logger,
+      );
       const ctx: ConnectedPeerContext = {
         id,
-        peerManager,
+        dispatcher: messageDispatcher,
         logger,
-        objectManager,
-        blockManager,
+        peerManager,
       };
       handleInboundConnection(socket, ctx);
     });
@@ -273,6 +276,7 @@ describe("Test node functionality", () => {
     peerManager = new PeerManager(store, logger);
     await peerManager.load();
     objectManager = createObjectManager().manager;
+    transactionManager = new TransactionManager(objectManager, peerManager, logger as any);
   });
 
   test("should be able to connect to node", async () => {
@@ -444,19 +448,14 @@ describe("Test node functionality", () => {
     const peersMessage = messages.find((m) => m.type === MessageType.PEERS);
 
     expect(peersMessage).toBeDefined();
-    const occurrences = peersMessage.peers.filter(
-      (p: string) => p === testPeer,
-    ).length;
+    const occurrences = peersMessage.peers.filter((p: string) => p === testPeer).length;
     expect(occurrences).toBe(1);
 
     await closeSocket(socket);
   });
 
   test("should support two parallel connections", async () => {
-    const [socket1, socket2] = await Promise.all([
-      connectToNode(),
-      connectToNode(),
-    ]);
+    const [socket1, socket2] = await Promise.all([connectToNode(), connectToNode()]);
 
     const [messages1, messages2] = await Promise.all([
       receiveMessages(socket1, 500),
@@ -610,9 +609,7 @@ describe("Test node functionality", () => {
 
       await receiveMessages(socket, 200);
 
-      socket.write(
-        JSON.stringify({ type: "peers", peers: ["not-a-peer"] }) + "\n",
-      );
+      socket.write(JSON.stringify({ type: "peers", peers: ["not-a-peer"] }) + "\n");
 
       const messages = await receiveMessages(socket, 500);
       const errorMessage = messages.find((m) => m.type === MessageType.ERROR);
@@ -700,14 +697,8 @@ describe("Test node functionality", () => {
     });
 
     test("returns a newly submitted valid transaction to another peer", async () => {
-      const [sender, receiver] = await Promise.all([
-        connectToNode(),
-        connectToNode(),
-      ]);
-      await Promise.all([
-        completeHandshake(sender),
-        completeHandshake(receiver),
-      ]);
+      const [sender, receiver] = await Promise.all([connectToNode(), connectToNode()]);
+      await Promise.all([completeHandshake(sender), completeHandshake(receiver)]);
       const { tx, txid } = await createValidTransactionForNode();
 
       sendMessage(sender, {
@@ -736,14 +727,8 @@ describe("Test node functionality", () => {
     });
 
     test("gossips ihaveobject to other peers for a new valid transaction", async () => {
-      const [sender, receiver] = await Promise.all([
-        connectToNode(),
-        connectToNode(),
-      ]);
-      await Promise.all([
-        completeHandshake(sender),
-        completeHandshake(receiver),
-      ]);
+      const [sender, receiver] = await Promise.all([connectToNode(), connectToNode()]);
+      await Promise.all([completeHandshake(sender), completeHandshake(receiver)]);
       const { tx, txid } = await createValidTransactionForNode();
 
       await receiveMessages(receiver, 200);
@@ -754,9 +739,7 @@ describe("Test node functionality", () => {
       });
 
       const receiverMessages = await receiveMessages(receiver, 500);
-      const gossipMessage = receiverMessages.find(
-        (m) => m.type === MessageType.IHAVEOBJECT,
-      );
+      const gossipMessage = receiverMessages.find((m) => m.type === MessageType.IHAVEOBJECT);
 
       expect(gossipMessage).toEqual({
         type: MessageType.IHAVEOBJECT,
@@ -777,9 +760,7 @@ describe("Test node functionality", () => {
       });
 
       const messages = await receiveMessages(socket, 500);
-      const getObjectMessage = messages.find(
-        (m) => m.type === MessageType.GET_OBJECT,
-      );
+      const getObjectMessage = messages.find((m) => m.type === MessageType.GET_OBJECT);
 
       expect(getObjectMessage).toEqual({
         type: MessageType.GET_OBJECT,
@@ -790,14 +771,8 @@ describe("Test node functionality", () => {
     });
 
     test("rejects invalid transactions and does not gossip them", async () => {
-      const [sender, receiver] = await Promise.all([
-        connectToNode(),
-        connectToNode(),
-      ]);
-      await Promise.all([
-        completeHandshake(sender),
-        completeHandshake(receiver),
-      ]);
+      const [sender, receiver] = await Promise.all([connectToNode(), connectToNode()]);
+      await Promise.all([completeHandshake(sender), completeHandshake(receiver)]);
 
       sendMessage(sender, {
         type: MessageType.OBJECT,
@@ -819,12 +794,8 @@ describe("Test node functionality", () => {
       const senderMessages = await receiveMessages(sender, 500);
       const receiverMessages = await receiveMessages(receiver, 500);
 
-      const errorMessage = senderMessages.find(
-        (m) => m.type === MessageType.ERROR,
-      );
-      const gossipMessage = receiverMessages.find(
-        (m) => m.type === MessageType.IHAVEOBJECT,
-      );
+      const errorMessage = senderMessages.find((m) => m.type === MessageType.ERROR);
+      const gossipMessage = receiverMessages.find((m) => m.type === MessageType.IHAVEOBJECT);
 
       expect(errorMessage).toBeDefined();
       expect(errorMessage).toHaveProperty("name", ErrorCode.UNKNOWN_OBJECT);
@@ -852,9 +823,7 @@ describe("Test node functionality", () => {
 
       const responseMessages = await receiveMessages(socket, 500);
 
-      const peersMessage = responseMessages.find(
-        (m) => m.type === MessageType.PEERS,
-      );
+      const peersMessage = responseMessages.find((m) => m.type === MessageType.PEERS);
       expect(peersMessage).toBeDefined();
       expect(peersMessage).toHaveProperty("peers");
 
@@ -866,9 +835,7 @@ describe("Test node functionality", () => {
 
       await receiveMessages(socket, 200);
 
-      socket.write(
-        '{ "version" : "0.10.0" , "agent" : "agent" , "type" : "hello" }\n',
-      );
+      socket.write('{ "version" : "0.10.0" , "agent" : "agent" , "type" : "hello" }\n');
 
       const messages = await receiveMessages(socket, 500);
 
@@ -978,9 +945,7 @@ describe("Test node functionality", () => {
 
       const messages = await receiveMessages(socket, 1000);
 
-      const peersMessages = messages.filter(
-        (m) => m.type === MessageType.PEERS,
-      );
+      const peersMessages = messages.filter((m) => m.type === MessageType.PEERS);
       expect(peersMessages.length).toBeGreaterThanOrEqual(1);
 
       await closeSocket(socket);
@@ -1000,9 +965,7 @@ describe("Test node functionality", () => {
         const messages = await receiveMessages(socket, 500);
 
         const errorMessage = messages.find(
-          (m) =>
-            m.type === MessageType.ERROR &&
-            m.name === ErrorCode.INVALID_HANDSHAKE,
+          (m) => m.type === MessageType.ERROR && m.name === ErrorCode.INVALID_HANDSHAKE,
         );
         expect(errorMessage).toBeUndefined();
 
@@ -1023,8 +986,7 @@ describe("Test node functionality", () => {
         const messages = await receiveMessages(socket, 500);
 
         const errorMessage = messages.find(
-          (m) =>
-            m.type === MessageType.ERROR && m.name === ErrorCode.INVALID_FORMAT,
+          (m) => m.type === MessageType.ERROR && m.name === ErrorCode.INVALID_FORMAT,
         );
         expect(errorMessage).toBeDefined();
 

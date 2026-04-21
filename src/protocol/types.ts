@@ -3,6 +3,8 @@ import type { PeerManager } from "@/peers/peerManager";
 import type { ObjectManagerInterface } from "@/storage/objectManager";
 import type { BlockManagerInterface } from "@/storage/BlockManager";
 import type ProtocolError from "@/protocol/error";
+import type { MessageDispatcher } from "@/net/MessageDispatcher";
+import type pino from "pino";
 
 export enum MessageType {
   HELLO = "hello",
@@ -230,10 +232,9 @@ export type ResolvedInput = z.infer<typeof InputTransactionSchema> & {
 };
 
 export interface PeerContext {
-  peerManager: PeerManager;
   logger: any;
-  objectManager: ObjectManagerInterface;
-  blockManager: BlockManagerInterface;
+  dispatcher: MessageDispatcher;
+  peerManager: PeerManager;
 }
 export type ConnectedPeerContext = PeerContext & {
   id: string;
@@ -241,9 +242,8 @@ export type ConnectedPeerContext = PeerContext & {
 
 export interface Connection {
   send(message: ValidMessage | ProtocolError): void;
-  readonly ctx: ConnectedPeerContext;
+  log: pino.Logger;
   readonly id: string;
-  readonly log: PeerContext["logger"];
 }
 
 export enum ConnectionDirection {

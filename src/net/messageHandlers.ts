@@ -1,11 +1,5 @@
-import {
-  checkCoinbaseFormat,
-  isCoinbaseCandidate,
-  validateBlock,
-} from "@/protocol/block.validator";
 import ProtocolError from "@/protocol/error";
 import { validatePeers } from "@/protocol/peer.validator";
-import { validateTx } from "@/protocol/transaction.validator";
 import { ErrorCode, MessageType, ObjectType } from "@/protocol/types";
 import type {
   ValidMessage,
@@ -22,6 +16,7 @@ import type {
   GetObjectMessage,
   ObjectMessage,
 } from "@/protocol/types";
+import type { ManagerSet } from "./MessageDispatcher";
 
 export const helloHandler = async (message: HelloMessage) => {
   console.log(`Received HELLO message from ${message.agent} v${message.version}`);
@@ -31,24 +26,32 @@ export const textHandler = async (message: TextMessage) => {
   console.log(`Received TEXT message: ${message.text}`);
 };
 
-export const getPeersHandler = async (_message: GetPeersMessage, connection: Connection) => {
+export const getPeersHandler = async (
+  _message: GetPeersMessage,
+  connection: Connection,
+  managers: ManagerSet,
+) => {
   console.log(`Received GET_PEERS message`);
   connection.send({
     type: MessageType.PEERS,
-    peers: connection.ctx.peerManager.getPeersForAdvertisement(),
+    peers: managers.peer.getPeersForAdvertisement(),
   });
 };
 
-export const peersHandler = async (message: PeersMessage, connection: Connection) => {
-  validatePeers(message, connection);
+export const peersHandler = async (
+  message: PeersMessage,
+  connection: Connection,
+  managers: ManagerSet,
+) => {
+  validatePeers(message);
   const newPeers = [];
   for (const peer of message.peers) {
     const normalizedPeer = peer.trim();
-    if (!connection.ctx.peerManager.getKnownPeerSet().has(normalizedPeer)) {
+    if (!managers.peer.getKnownPeerSet().has(normalizedPeer)) {
       newPeers.push(normalizedPeer);
     }
   }
-  await connection.ctx.peerManager.addKnownPeers(newPeers, connection.id);
+  await managers.peer.addKnownPeers(newPeers, connection.id);
 };
 
 export const errorHandler = async (message: ErrorMessage, connection: Connection) => {
@@ -77,10 +80,14 @@ export const getChainTipHandler = async (_message: GetChainTipMessage, connectio
   );
 };
 
-export const iHaveObjectHandler = async (message: IHaveObjectMessage, connection: Connection) => {
+export const iHaveObjectHandler = async (
+  message: IHaveObjectMessage,
+  connection: Connection,
+  managers: ManagerSet,
+) => {
   let hasObject = false;
   try {
-    await connection.ctx.objectManager.get(message.objectid);
+    await managers.object.get(message.objectid);
     hasObject = true;
   } catch (e) {}
 
@@ -92,9 +99,13 @@ export const iHaveObjectHandler = async (message: IHaveObjectMessage, connection
   }
 };
 
-export const getObjectHandler = async (message: GetObjectMessage, connection: Connection) => {
+export const getObjectHandler = async (
+  message: GetObjectMessage,
+  connection: Connection,
+  managers: ManagerSet,
+) => {
   try {
-    const obj = await connection.ctx.objectManager.get(message.objectid);
+    const obj = await managers.object.get(message.objectid);
     if (obj) {
       connection.send({
         type: MessageType.OBJECT,
@@ -110,71 +121,42 @@ export const getObjectHandler = async (message: GetObjectMessage, connection: Co
   );
 };
 
-export const objectHandler = async (message: ObjectMessage, connection: Connection) => {
-  const objId = connection.ctx.objectManager.id(message.object);
+export const objectHandler = async (
+  message: ObjectMessage,
+  connection: Connection,
+  managers: ManagerSet,
+) => {
+  const objId = managers.object.id(message.object);
   try {
-    await connection.ctx.objectManager.get(objId);
+    await managers.object.get(objId);
     return;
   } catch (e) {}
-  if (message.object.type === ObjectType.TRANSACTION) {
-    if (isCoinbaseCandidate(message.object)) {
-      try {
-        // For coinbase transactions, we only do basic format checks since they are not fully valid until included in a block and validated as part of that block.
-        checkCoinbaseFormat(message.object, connection);
-      } catch (e) {
-        if (e instanceof ProtocolError) {
-          connection.send(e);
-        }
-        connection.log.error(`Error validating coinbase transaction: ${e}`);
-        return;
-      }
-    } else {
-      try {
-        await validateTx(message.object, connection);
-      } catch (e) {
-        if (e instanceof ProtocolError) {
-          connection.send(e);
-        }
-        connection.log.error(`Error validating transaction: ${e}`);
-        return;
-      }
+  try {
+    if (message.object.type === ObjectType.TRANSACTION) {
+      // 2. Delegate to Tx Manager
+      await managers.tx.handleIncoming(message.object, connection);
+    } else if (message.object.type === ObjectType.BLOCK) {
+      // 2. Delegate to Block Manager
+      await managers.block.handleIncoming(message.object, connection);
     }
-  }
-  if (message.object.type === ObjectType.BLOCK) {
-    try {
-      const result = await validateBlock(message.object, connection);
-      if (!result) {
-        //TODO:  Parent block unknown — ignore this block for PSET 3. Remove later
-        connection.log.info(`Ignoring block ${objId}: parent block not found`);
-        return;
-      }
-      await connection.ctx.blockManager.storeValidatedBlock(result);
-      // Persist the block and its UTXO snapshot.
-    } catch (e) {
-      if (e instanceof ProtocolError) {
-        connection.send(e);
-      }
-      connection.log.error(`Error validating block: ${e}`);
-      return;
+  } catch (e) {
+    // Errors bubble up here from the managers
+    if (e instanceof ProtocolError) {
+      connection.send(e);
     }
-  } else {
-    // storeAccepted, adds block to the db. This is for txs.
-    await connection.ctx.objectManager.put(message.object);
+    connection.log.error(`Failed to handle object ${objId}: ${(e as Error).message}`);
   }
-  connection.ctx.peerManager.broadcast(
-    {
-      type: MessageType.IHAVEOBJECT,
-      objectid: objId,
-    },
-    connection.id,
-  );
 };
 
-type GenericHandler = (message: ValidMessage, connection: Connection) => Promise<void>;
+type GenericHandler = (
+  message: ValidMessage,
+  connection: Connection,
+  managers: ManagerSet,
+) => Promise<void>;
 
 export const messageHandlers: Record<
   MessageType,
-  (message: ValidMessage, connection: Connection) => Promise<void>
+  (message: ValidMessage, connection: Connection, managers: ManagerSet) => Promise<void>
 > = {
   [MessageType.HELLO]: helloHandler as unknown as GenericHandler,
   [MessageType.TEXT]: textHandler as unknown as GenericHandler,

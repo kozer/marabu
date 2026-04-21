@@ -1,17 +1,10 @@
 import { Socket } from "net";
 import { MAX_PEERS, OUTBOUND_PEER_LIMIT } from "@/shared/constants";
 import { parsePeerAddress } from "@/shared/utils";
-import {
-  ConnectionDirection,
-  type ConnectedPeerContext,
-  type PeerContext,
-} from "@/protocol/types";
+import { ConnectionDirection, type ConnectedPeerContext, type PeerContext } from "@/protocol/types";
 import { PeerConnection } from "@/net/peerConnection";
 
-export function handleInboundConnection(
-  socket: Socket,
-  ctx: ConnectedPeerContext,
-) {
+export function handleInboundConnection(socket: Socket, ctx: ConnectedPeerContext) {
   if (!ctx.peerManager.canAcceptInbound(ctx.id)) {
     ctx.logger.warn(
       `Refusing connection from ${ctx.id}: Max peers reached or host is blacklisted.`,
@@ -31,17 +24,14 @@ export function handleOutboundConnection(ctx: PeerContext) {
     ctx.logger.debug("Discovery loop: Outbound peer limit reached. Skipping.");
     return;
   }
-  const peersToConnect =
-    OUTBOUND_PEER_LIMIT - ctx.peerManager.outboundConnectionCount;
+  const peersToConnect = OUTBOUND_PEER_LIMIT - ctx.peerManager.outboundConnectionCount;
   const candidates = ctx.peerManager.getOutboundCandidates();
 
   if (candidates.length === 0) {
     ctx.logger.debug("Discovery loop: No candidates available. Skipping.");
     return;
   }
-  const peers = candidates
-    .sort(() => Math.random() - 0.5)
-    .slice(0, peersToConnect);
+  const peers = candidates.sort(() => Math.random() - 0.5).slice(0, peersToConnect);
   ctx.logger.info(
     `Discovery loop: Attempting to connect to ${peers.length} peer(s). Outbound: ${ctx.peerManager.outboundConnectionCount}/${OUTBOUND_PEER_LIMIT}, Total: ${ctx.peerManager.totalConnections}/${MAX_PEERS}`,
   );

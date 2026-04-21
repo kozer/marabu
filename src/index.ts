@@ -2,10 +2,7 @@ import { createServer, Socket } from "net";
 import { Level } from "level";
 import logger from "@/shared/logger";
 import { SERVER_PORT, PEERS_FILE, DEFAULT_DB_PATH } from "@/shared/constants";
-import {
-  handleInboundConnection,
-  handleOutboundConnection,
-} from "@/net/connection";
+import { handleInboundConnection, handleOutboundConnection } from "@/net/connection";
 import { PeerManager } from "@/peers/peerManager";
 import { FilePeerStore } from "@/peers/peerStore";
 import ObjectManager from "./storage/objectManager";
@@ -13,6 +10,8 @@ import type { ConnectedPeerContext, UtxoRows } from "./protocol/types";
 import UtxoStore from "./storage/UtxoStore";
 import BlockManager from "./storage/BlockManager";
 import { GENESIS_BLOCK, GENESIS_BLOCK_ID } from "./protocol/types";
+import { MessageDispatcher } from "./net/MessageDispatcher";
+import { TransactionManager } from "./storage/TransactionManager";
 
 export type NodeOptions = {
   dbPath?: string;
@@ -36,10 +35,12 @@ export async function startNode(opts?: NodeOptions): Promise<NodeHandle> {
   });
   const objectManager = new ObjectManager(logger, objectsDb);
   const utxoStore = new UtxoStore(logger, utxosDb);
+  const transactionManager = new TransactionManager(objectManager, peerManager, logger);
   const blockManager = new BlockManager(
     objectManager,
     utxoStore,
     peerManager,
+    transactionManager,
     logger,
   );
   // TODO: Remove after PSET 3.
@@ -51,9 +52,7 @@ export async function startNode(opts?: NodeOptions): Promise<NodeHandle> {
       server.once("error", reject);
       server.listen(SERVER_PORT, () => {
         server.removeListener("error", reject);
-        console.log(
-          `Server listening for connection requests on socket localhost:${SERVER_PORT}`,
-        );
+        console.log(`Server listening for connection requests on socket localhost:${SERVER_PORT}`);
         resolve();
       });
     });
@@ -63,12 +62,17 @@ export async function startNode(opts?: NodeOptions): Promise<NodeHandle> {
     process.exit(1);
   }
 
+  const messageDispatcher = new MessageDispatcher(
+    { block: blockManager, tx: transactionManager, peer: peerManager, object: objectManager },
+    logger,
+  );
+
   const ctx = {
     peerManager,
     logger,
-    objectManager,
-    blockManager,
+    dispatcher: messageDispatcher,
   };
+
   server.on("connection", function (socket: Socket) {
     const id = `${socket.remoteAddress}:${socket.remotePort}`;
     const connectedCtx: ConnectedPeerContext = {
@@ -78,10 +82,7 @@ export async function startNode(opts?: NodeOptions): Promise<NodeHandle> {
     handleInboundConnection(socket, connectedCtx);
   });
   handleOutboundConnection(ctx);
-  const discoveryInterval = setInterval(
-    () => handleOutboundConnection(ctx),
-    60000,
-  );
+  const discoveryInterval = setInterval(() => handleOutboundConnection(ctx), 60000);
 
   return {
     shutdown: async () => {
