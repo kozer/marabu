@@ -3,9 +3,8 @@ import {
   MessageType,
   ObjectType,
   type BlockMessage,
-  type Connection,
+  type ChainState,
   type ObjectData,
-  type ObjectMessage,
   type TransactionMessage,
   type TxValidationResult,
   type UtxoSnapshot,
@@ -23,7 +22,9 @@ import {
   checkPOW,
   ensureInputsPresentInUtxo,
   isCoinbaseCandidate,
+  validateBlockTimestamp,
   validateGenesisBlock,
+  validateHeightOfCoinbaseTx,
   verifyLawOfConservationForCoinbaseTx,
   verifyNoCoinbaseSpendingInBlock,
 } from "@/protocol/block.validator";
@@ -32,15 +33,18 @@ import type { TransactionManager } from "./TransactionManager";
 export interface BlockManagerInterface {
   getUtxoSet(blockId: string | null): Promise<UtxoSnapshot | null>;
   findBlock(blockId: string): Promise<BlockMessage | null>;
-  getTip(): Promise<string | null>;
   getBlockTransactions(block: BlockMessage): Promise<TransactionMessage[]>;
   storeValidatedBlock(result: ValidatedBlock): Promise<void>;
   handleIncoming(block: BlockMessage, id: string): Promise<ValidatedBlock | void>;
   validateBlock(block: BlockMessage): Promise<ValidatedBlock | null>;
+  getBlockHeight(): number;
+  init(genBlock: any, genesisId: string): Promise<void>;
+  getTip(): string;
   close(): Promise<void>;
 }
 
 class BlockManager implements BlockManagerInterface {
+  private chainState: ChainState = { tip: "", height: -1 };
   constructor(
     private readonly objectManager: ObjectManagerInterface,
     private readonly utxoStore: UtxoStore,
@@ -48,6 +52,35 @@ class BlockManager implements BlockManagerInterface {
     private readonly transactionManager: TransactionManager,
     private readonly logger: pino.Logger,
   ) {}
+
+  async init(genBlock: any, genesisId: string): Promise<void> {
+    // 1. Try to recover the tip from the DB
+    const savedState = await this.objectManager.getChainState();
+
+    if (savedState.height >= 0) {
+      // SCENARIO A: Normal Resume
+      this.chainState = savedState;
+      this.logger.info(
+        `Resumed chain at height ${this.chainState.height} (Tip: ${this.chainState.tip})`,
+      );
+    } else if (genBlock && genesisId) {
+      // SCENARIO B: Fresh start with provided Genesis
+      this.logger.info("Fresh database detected. Seeding provided Genesis...");
+      await this.seedGenesis(genBlock, genesisId);
+    } else {
+      // SCENARIO C: No data and no Genesis provided
+      this.logger.warn("No chain state found and no Genesis provided. Node is in 'waiting' mode.");
+      this.chainState = { tip: "", height: -1 };
+    }
+  }
+
+  getTip(): string {
+    return this.chainState.tip;
+  }
+
+  getBlockHeight(): number {
+    return this.chainState.height;
+  }
 
   async handleIncoming(block: BlockMessage, connectionId: string): Promise<ValidatedBlock | void> {
     const result = await this.validateBlock(block);
@@ -70,14 +103,6 @@ class BlockManager implements BlockManagerInterface {
     return this.utxoStore.get(blockId);
   }
 
-  async getTip(): Promise<string> {
-    try {
-      return await this.objectManager.getTip();
-    } catch (e) {
-      this.logger.error(`Error getting tip: ${(e as Error).message}`);
-      return "";
-    }
-  }
   async findBlock(blockId: string): Promise<BlockMessage | null> {
     try {
       const result = await this.objectManager.findObject(
@@ -128,24 +153,46 @@ class BlockManager implements BlockManagerInterface {
     });
   }
   async storeValidatedBlock(result: ValidatedBlock): Promise<void> {
-    await this.objectManager.put(result.block);
-    await this.utxoStore.put(result.blockId, result.utxoSetAfterTxApply);
-    await this.objectManager.updateTip(result.blockId);
+    const newHeight = this.chainState.height + 1;
+
+    await Promise.all([
+      this.objectManager.put(result.block),
+      this.utxoStore.put(result.blockId, result.utxoSetAfterTxApply),
+    ]);
+
+    await this.objectManager.updateChainState(result.blockId, newHeight);
+
+    this.chainState = {
+      tip: result.blockId,
+      height: newHeight,
+    };
+
+    this.logger.info(`Chain updated to height ${newHeight} (Tip: ${result.blockId})`);
   }
 
-  async seedGenesis(genBlock: any, genesisId: any): Promise<void> {
-    const genesisBlock: ObjectMessage = {
-      type: MessageType.OBJECT,
-      object: genBlock,
+  private async seedGenesis(genBlock: any, genesisId: string): Promise<void> {
+    // 1. Check if we already have the genesis in our chain state
+    // This prevents resetting the tip to 0 every time the node restarts
+    const currentState = await this.objectManager.getChainState();
+    if (currentState.height >= 0) {
+      this.chainState = currentState;
+      this.logger.info(
+        `Node started at height ${this.chainState.height} (Tip: ${this.chainState.tip})`,
+      );
+      return;
+    }
+
+    this.logger.info("Seeding Genesis block...");
+
+    const genesisResult: ValidatedBlock = {
+      block: genBlock,
+      blockId: genesisId,
+      utxoSetAfterTxApply: this.utxoStore.empty(),
     };
-    if (!(await this.objectManager.exists(this.objectManager.id(genesisBlock.object)))) {
-      await this.objectManager.put(genesisBlock.object);
-      await this.objectManager.updateTip(this.objectManager.id(genesisBlock.object));
-    }
-    if (!(await this.utxoStore.has(genesisId))) {
-      await this.utxoStore.put(genesisId, this.utxoStore.empty());
-    }
+
+    await this.storeValidatedBlock(genesisResult);
   }
+
   async close(): Promise<void> {
     await this.objectManager.close();
     await this.utxoStore.close();
@@ -215,23 +262,21 @@ class BlockManager implements BlockManagerInterface {
         validateGenesisBlock(block, this.objectManager);
       }
       checkPOW(block, this.objectManager);
-      let parentUtxo = await this.getUtxoSet(block.previd);
-      if (!parentUtxo) {
-        try {
-          const result = await this.findBlock(block.previd!);
-          if (!result) {
-            throw new Error(`Parent block ${block.previd} not found`);
-          }
-          parentUtxo = await this.getUtxoSet(block.previd);
-        } catch (e) {
-          throw new ProtocolError(
-            ErrorCode.UNFINDABLE_OBJECT,
-            `Parent block ${block.previd} not found for block ${this.objectManager.id(block)}`,
-          );
-        }
+      const parent = await this.findBlock(block.previd!);
+      if (!parent) {
+        throw new ProtocolError(
+          ErrorCode.UNFINDABLE_OBJECT,
+          `Parent block ${block.previd} not found for block ${this.objectManager.id(block)}`,
+        );
       }
-      // We create a copy
+
+      let parentUtxo = await this.getUtxoSet(block.previd);
+
+      const blockState = await this.objectManager.getChainState();
+      const newHeight = blockState.height + 1;
       const utxoSet = new Map(parentUtxo);
+
+      validateBlockTimestamp(block.created, parent.created);
 
       let blockTxs: TransactionMessage[];
       try {
@@ -275,6 +320,7 @@ class BlockManager implements BlockManagerInterface {
 
       //We have verified the transactions in the block, so now we can use them to verify the law of conservation for the coinbase transaction if it exists.
       if (coinbaseTx) {
+        validateHeightOfCoinbaseTx(coinbaseTx, newHeight);
         verifyLawOfConservationForCoinbaseTx(coinbaseTx!, validatedTxs);
         applyTransactionToUtxoSet(coinbaseTx, utxoSet, this.objectManager);
       }

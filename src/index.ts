@@ -6,7 +6,7 @@ import { handleInboundConnection, handleOutboundConnection } from "@/net/connect
 import { PeerManager } from "@/peers/peerManager";
 import { FilePeerStore } from "@/peers/peerStore";
 import ObjectManager from "./storage/objectManager";
-import type { ConnectedPeerContext, UtxoRows } from "./protocol/types";
+import type { ConnectedPeerContext, UtxoRow } from "./protocol/types";
 import UtxoStore from "./storage/UtxoStore";
 import BlockManager from "./storage/BlockManager";
 import { GENESIS_BLOCK, GENESIS_BLOCK_ID } from "./protocol/types";
@@ -30,7 +30,7 @@ export async function startNode(opts?: NodeOptions): Promise<NodeHandle> {
   await peerManager.load();
   const server = createServer();
   const objectsDb = new Level(`${dbPath}/objects`, { valueEncoding: "json" });
-  const utxosDb = new Level<string, UtxoRows>(`${dbPath}/utxos`, {
+  const utxosDb = new Level<string, UtxoRow>(`${dbPath}/utxos`, {
     valueEncoding: "json",
   });
   const objectManager = new ObjectManager(logger, objectsDb);
@@ -44,7 +44,7 @@ export async function startNode(opts?: NodeOptions): Promise<NodeHandle> {
     logger,
   );
   // TODO: Remove after PSET 3.
-  await blockManager.seedGenesis(GENESIS_BLOCK, GENESIS_BLOCK_ID);
+  await blockManager.init(GENESIS_BLOCK, GENESIS_BLOCK_ID);
 
   try {
     // Do this so we know that the listening socket is properly set up before we run tests.

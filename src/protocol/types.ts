@@ -274,10 +274,15 @@ export type UtxoEntry = {
 };
 
 export type UtxoSnapshot = Map<UtxoKey, UtxoEntry>;
-export type UtxoRows = UtxoEntry[];
+export type UtxoRow = UtxoEntry | string;
 
 export type ValidatedBlock = {
   blockId: string;
   block: BlockMessage;
   utxoSetAfterTxApply: UtxoSnapshot;
+};
+
+export type ChainState = {
+  tip: string;
+  height: number;
 };

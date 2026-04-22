@@ -3,7 +3,13 @@ import canonicalize from "canonicalize";
 import { blake2s } from "@noble/hashes/blake2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import ProtocolError from "@/protocol/error";
-import { ErrorCode, MessageType, ObjectType, type ObjectData } from "@/protocol/types";
+import {
+  ErrorCode,
+  GENESIS_BLOCK,
+  MessageType,
+  ObjectType,
+  type ObjectData,
+} from "@/protocol/types";
 import type {
   BlockMessage,
   InputTransactionMessage,
@@ -43,6 +49,7 @@ function createFakeBlockManager(args: {
   blockTxs?: TransactionMessage[];
   objects?: Record<string, ObjectData>;
   peerManager?: any;
+  genesisBlock?: BlockMessage;
 }) {
   const objectManager = {
     get: async (key: string) => args.objects?.[key] ?? null,
@@ -51,11 +58,16 @@ function createFakeBlockManager(args: {
       if (typed.type === ObjectType.BLOCK) return hash(obj as BlockMessage);
       return hash(obj as TransactionMessage);
     },
+    getChainState: async () => ({
+      height: 0,
+      tip: "",
+    }),
     exists: async () => true,
     put: async () => {},
     findObject: async (id: string) => {
       const tx = args.blockTxs?.find((tx) => hash(tx) === id);
       if (tx) return tx;
+      if (args.genesisBlock) return args.genesisBlock;
       throw new Error(`Object ${id} not found`);
     },
     close: async () => {},
@@ -88,7 +100,14 @@ function createFakeBlockManager(args: {
     getOutboundCandidates: () => [],
   } as any;
   const txManager = new TransactionManager(objectManager, peerManager, logger as any);
-  return new BlockManager(objectManager, utxoStore, peerManager, txManager, logger as any);
+  const blockManager = new BlockManager(
+    objectManager,
+    utxoStore,
+    peerManager,
+    txManager,
+    logger as any,
+  );
+  return blockManager;
 }
 
 function createDeps(objects?: Record<string, ObjectData>) {
@@ -530,6 +549,7 @@ describe("validateBlock", () => {
     const blockManager = createFakeBlockManager({
       parentUtxo: new Map(),
       blockTxs: [PSET3_BLOCK_TX],
+      genesisBlock: GENESIS_BLOCK,
     });
     const result = await blockManager.validateBlock(PSET3_VALID_BLOCK);
     expect(result).not.toBeNull();

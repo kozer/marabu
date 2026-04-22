@@ -75,10 +75,16 @@ export const memPoolHandler = async (message: MempoolMessage, connection: Connec
   });
 };
 
-export const getChainTipHandler = async (_message: GetChainTipMessage, connection: Connection) => {
-  connection.log.info(
-    `Received request for chain tip from ${connection.id}, but this functionality is not implemented yet.`,
-  );
+export const getChainTipHandler = async (
+  _message: GetChainTipMessage,
+  connection: Connection,
+  managers: ManagerSet,
+) => {
+  const tip = managers.block.getTip();
+  connection.send({
+    type: MessageType.CHAIN_TIP,
+    blockid: tip,
+  });
 };
 
 export const iHaveObjectHandler = async (
@@ -146,7 +152,7 @@ export const chainTipHandler = async (
   managers: ManagerSet,
 ) => {
   connection.log.error(`Received chain tip ${message.blockid} from ${connection.id}`);
-  const tip = await managers.block.getTip();
+  const tip = managers.block.getTip();
   connection.log.error(
     `Received chain tip ${message.blockid} from ${connection.id}, current tip is ${tip}`,
   );

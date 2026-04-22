@@ -1,4 +1,4 @@
-import type { UtxoKey, UtxoRows, UtxoSnapshot } from "@/protocol/types";
+import type { UtxoEntry, UtxoKey, UtxoRow, UtxoSnapshot } from "@/protocol/types";
 import { DEFAULT_DB_PATH } from "@/shared/constants";
 import { Level } from "level";
 import type pino from "pino";
@@ -13,11 +13,10 @@ export interface UtxoStoreInterface {
 }
 
 class UtxoStore implements UtxoStoreInterface {
-  private readonly db: Level<string, UtxoRows>;
+  private readonly db: Level<string, UtxoRow>;
   private readonly logger: pino.Logger;
-  constructor(logger: pino.Logger, db?: Level<string, UtxoRows>) {
-    this.db =
-      db || new Level(`${DEFAULT_DB_PATH}/utxos`, { valueEncoding: "json" });
+  constructor(logger: pino.Logger, db?: Level<string, UtxoRow>) {
+    this.db = db || new Level(`${DEFAULT_DB_PATH}/utxos`, { valueEncoding: "json" });
     this.logger = logger;
   }
   key(txid: string, index: number): UtxoKey {
@@ -34,23 +33,41 @@ class UtxoStore implements UtxoStoreInterface {
     return this.db.has(blockId);
   }
   async get(blockId: string): Promise<UtxoSnapshot | null> {
+    const snapshot: UtxoSnapshot = new Map();
+    const prefix = `block:${blockId}:utxo:`;
+
     try {
-      const rows = (await this.db.get(blockId)) as UtxoRows;
-      if (rows === undefined) {
-        return null;
+      if (!(await this.db.has(`status:${blockId}`))) return null;
+
+      for await (const [_key, value] of this.db.iterator({
+        gt: prefix,
+        lt: prefix + "\xff", // \xff is the "highest" possible character
+      })) {
+        // Key is block:abc:utxo:tx123:0
+        // Value is the UtxoEntry object
+        const entry = value as UtxoEntry;
+        snapshot.set(this.key(entry.txid, entry.index), entry);
       }
-      return new Map(
-        rows.map((entry) => [this.key(entry.txid, entry.index), entry]),
-      );
+
+      return snapshot;
     } catch (err) {
-      this.logger.error(
-        `Error getting UTXO snapshot for block ${blockId}: ${(err as Error).message}`,
-      );
+      this.logger.error(`Failed to stream UTXOs for ${blockId}: ${err}`);
       return null;
     }
   }
   async put(blockId: string, snapshot: UtxoSnapshot): Promise<void> {
-    await this.db.put(blockId, [...snapshot.values()]);
+    const batch = this.db.batch();
+
+    // 1. Mark this block as "having a state"
+    batch.put(`status:${blockId}`, "valid");
+
+    // 2. Save individual UTXOs
+    for (const [utxoKey, entry] of snapshot) {
+      const dbKey = `block:${blockId}:utxo:${utxoKey}`;
+      batch.put(dbKey, entry);
+    }
+
+    await batch.write();
   }
 
   async close(): Promise<void> {

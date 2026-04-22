@@ -73,6 +73,33 @@ export function verifyNoCoinbaseSpendingInBlock(
   return true;
 }
 
+export function validateHeightOfCoinbaseTx(
+  coinbaseTx: TransactionMessage,
+  blockHeight: number,
+): boolean {
+  if (coinbaseTx.height !== blockHeight) {
+    throw new ProtocolError(
+      ErrorCode.INVALID_BLOCK_COINBASE,
+      `Coinbase transaction height ${coinbaseTx.height} does not match block height ${blockHeight}`,
+    );
+  }
+  return true;
+}
+
+export function validateCoinbaseTxIsFirstInBlock(
+  coinbaseTx: TransactionMessage,
+  blockTxs: TransactionMessage[],
+  objectManager: ObjectManagerInterface,
+): boolean {
+  if (objectManager.id(coinbaseTx) !== objectManager.id(blockTxs[0])) {
+    throw new ProtocolError(
+      ErrorCode.INVALID_BLOCK_COINBASE,
+      `Coinbase transaction ID ${objectManager.id(coinbaseTx)} does not match first transaction ID in block ${objectManager.id(blockTxs[0])}`,
+    );
+  }
+  return true;
+}
+
 export function verifyLawOfConservationForCoinbaseTx(
   coinbaseTx: TransactionMessage,
   txs: TxValidationResult[],
@@ -103,6 +130,16 @@ export function ensureInputsPresentInUtxo(
       throw new ProtocolError(ErrorCode.INVALID_TX_OUTPOINT, `UTXO ${key} not found`);
     }
   }
+}
+
+export function validateBlockTimestamp(blockCreated: number, parentCreated: number): boolean {
+  if (blockCreated < parentCreated || blockCreated > Date.now() + 2 * 60 * 1000) {
+    throw new ProtocolError(
+      ErrorCode.INVALID_BLOCK_TIMESTAMP,
+      `Block timestamp ${blockCreated} is not greater than parent timestamp ${parentCreated}`,
+    );
+  }
+  return true;
 }
 
 export function checkForCoinbaseTxsInBlock(

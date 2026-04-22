@@ -2,7 +2,7 @@ import canonicalize from "canonicalize";
 import { blake2s } from "@noble/hashes/blake2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { Level } from "level";
-import type { ObjectData } from "@/protocol/types";
+import type { ChainState, ObjectData } from "@/protocol/types";
 import { DEFAULT_DB_PATH, FIND_TIMEOUT_MS } from "@/shared/constants";
 import RequestQueue from "./requestQueue";
 import type pino from "pino";
@@ -22,8 +22,9 @@ export interface ObjectManagerInterface {
     timeout?: number,
   ): Promise<ObjectData>;
   put(object: ObjectData): Promise<string>;
-  updateTip(objectId: string): Promise<void>;
-  getTip(): Promise<string>;
+  getChainState(): Promise<ChainState>;
+  updateChainState(tipId: string, height: number): Promise<void>;
+  getBlockHeight(blockId: string): Promise<number | null>;
   close(): Promise<void>;
 }
 
@@ -38,20 +39,39 @@ class ObjectManager implements ObjectManagerInterface {
     this.logger = logger;
     this.requestQueue = new RequestQueue(logger);
   }
-  async updateTip(objectId: string): Promise<void> {
-    return this.db.put("tip", objectId);
-  }
-  async getTip(): Promise<string> {
+  async getBlockHeight(blockId: string): Promise<number | null> {
     try {
-      const tip = await this.db.get("tip");
-      if (typeof tip === "string") {
-        return tip;
-      }
-      throw new Error("Invalid tip format");
-    } catch (err) {
-      this.logger.error(`Error getting tip: ${(err as Error).message}`);
+      const h = await this.db.get(`height:${blockId}`);
+      return parseInt(h, 10);
+    } catch (err: any) {
+      if (err.notFound) return null;
       throw err;
     }
+  }
+  async updateChainState(tip: string, height: number): Promise<void> {
+    const batch = this.db.batch();
+    batch.put(`height:${tip}`, height.toString());
+    batch.put("meta:tip", tip);
+    batch.put("meta:height", height.toString());
+    await batch.write();
+  }
+  async getChainState(): Promise<ChainState> {
+    // Use allSettled to prevent a single 'notFound' from rejecting the whole operation
+    const [tipResult, heightResult] = await Promise.allSettled([
+      this.db.get("meta:tip"),
+      this.db.get("meta:height"),
+    ]);
+
+    // Extract values or use defaults if rejected (e.g., key not found)
+    const tipId = tipResult.status === "fulfilled" ? (tipResult.value as string) : "";
+
+    const height =
+      heightResult.status === "fulfilled" ? parseInt(heightResult.value as string, 10) : 0;
+
+    return {
+      tip: tipId || "",
+      height: isNaN(height) ? 0 : height,
+    };
   }
   async get(id: string): Promise<ObjectData> {
     const object = await this.db.get(id);
