@@ -1,6 +1,6 @@
 import canonicalize from "canonicalize";
 import { SEPARATOR } from "@/shared/constants";
-import { ErrorCode, MessageType } from "@/protocol/types";
+import { ErrorCode, MessageType, type Connection } from "@/protocol/types";
 
 class ProtocolError extends Error {
   // Hardcoded to "error" so the peer knows this is an error message
@@ -29,5 +29,15 @@ class ProtocolError extends Error {
     );
   }
 }
+export class MultiProtocolError extends Error {
+  readonly errors: ProtocolError[];
 
+  constructor(errors: ProtocolError[]) {
+    super(`Multiple Protocol Errors: ${errors.map((e) => e.name).join(", ")}`);
+    this.errors = errors;
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, MultiProtocolError);
+    }
+  }
+}
 export default ProtocolError;

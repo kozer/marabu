@@ -1,10 +1,9 @@
 import z from "zod";
 import type { PeerManager } from "@/peers/peerManager";
-import type { ObjectManagerInterface } from "@/storage/objectManager";
-import type { BlockManagerInterface } from "@/storage/BlockManager";
 import type ProtocolError from "@/protocol/error";
 import type { MessageDispatcher } from "@/net/MessageDispatcher";
 import type pino from "pino";
+import { isTest } from "@/shared/constants";
 
 export enum MessageType {
   HELLO = "hello",
@@ -13,6 +12,7 @@ export enum MessageType {
   PEERS = "peers",
   ERROR = "error",
   GET_CHAIN_TIP = "getchaintip",
+  CHAIN_TIP = "chaintip",
   GET_MEMPOOL = "getmempool",
   MEMPOOL = "mempool",
   IHAVEOBJECT = "ihaveobject",
@@ -24,10 +24,6 @@ export enum ObjectType {
   TRANSACTION = "transaction",
   BLOCK = "block",
 }
-
-// Only NODE_ENV=development uses easy mining targets and dev genesis.
-// Both production and test use real network values.
-const isTest = process.env.NODE_ENV === "test";
 
 export const TARGET = isTest
   ? "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
@@ -154,6 +150,11 @@ export const GetChainTipMessageSchema = z.object({
   type: z.literal(MessageType.GET_CHAIN_TIP),
 });
 
+export const ChainTipMessageSchema = z.object({
+  type: z.literal(MessageType.CHAIN_TIP),
+  blockid: z.hex().length(64),
+});
+
 export const GetOjbectMessageSchema = z.object({
   type: z.literal(MessageType.GET_OBJECT),
   objectid: z.hex().length(64),
@@ -176,8 +177,7 @@ const AsciiPrintableSchema = z
   .max(128, "String must be 128 characters or fewer")
   .regex(/^[\x20-\x7E]*$/);
 
-// Make block schema a loose object for now, as we don't care for Pset2.
-export const BlockSchema = z.looseObject({
+export const BlockSchema = z.object({
   type: z.literal(ObjectType.BLOCK),
   created: z.int().nonnegative(),
   nonce: z.hex().length(64),
@@ -208,6 +208,7 @@ export const MessageSchema = z.discriminatedUnion("type", [
   ObjectMessageSchema,
   IHaveObjectMessageSchema,
   GetOjbectMessageSchema,
+  ChainTipMessageSchema,
 ]);
 
 export type ValidMessage = z.infer<typeof MessageSchema>;
@@ -217,6 +218,7 @@ export type GetPeersMessage = z.infer<typeof GetPeersMessageSchema>;
 export type PeersMessage = z.infer<typeof PeersMessageSchema>;
 export type ErrorMessage = z.infer<typeof ErrorMessageSchema>;
 export type GetChainTipMessage = z.infer<typeof GetChainTipMessageSchema>;
+export type ChainTipMessage = z.infer<typeof ChainTipMessageSchema>;
 export type GetMempoolMessage = z.infer<typeof GetMempoolMessageSchema>;
 export type MempoolMessage = z.infer<typeof MempoolMessageSchema>;
 export type TransactionMessage = z.infer<typeof TransactionSchema>;

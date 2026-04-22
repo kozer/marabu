@@ -86,14 +86,25 @@ export async function startNode(opts?: NodeOptions): Promise<NodeHandle> {
 
   return {
     shutdown: async () => {
+      logger.info("Shutting down node...");
       clearInterval(discoveryInterval);
+
       try {
-        await blockManager.close();
+        // 1. Stop accepting new connections
         await new Promise<void>((resolve, reject) => {
           server.close((err) => (err ? reject(err) : resolve()));
         });
+
+        // 2. Close the blockManager (which should close its internal stores)
+        await blockManager.close();
+
+        // 3. Explicitly close the DBs created in this scope just to be safe
+        await objectsDb.close();
+        await utxosDb.close();
+
+        logger.info("Shutdown complete.");
       } catch (e) {
-        logger.error(`Error closing server: ${(e as Error).message}`);
+        logger.error(`Error during shutdown: ${(e as Error).message}`);
       }
     },
   };

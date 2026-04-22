@@ -1,6 +1,6 @@
 import { Socket } from "net";
-import { SEPARATOR } from "@/shared/constants";
-import ProtocolError from "@/protocol/error";
+import { CHAIN_TIP_NUMBER_OF_CONNECTED_PEERS, SEPARATOR } from "@/shared/constants";
+import ProtocolError, { MultiProtocolError } from "@/protocol/error";
 import { checkHandshake, type ConnectionState } from "@/net/handshake";
 import { parseMessage } from "@/net/messageParser";
 import {
@@ -96,11 +96,26 @@ export class PeerConnection implements Connection {
     this.send({
       type: MessageType.GET_PEERS,
     });
+    this.log.error(
+      `Outbound connections: ${this._ctx.peerManager.outboundConnectionCount}, Inbound connections: ${this._ctx.peerManager.inboundConnectionCount}`,
+    );
+    if (this._ctx.peerManager.outboundConnectionCount === CHAIN_TIP_NUMBER_OF_CONNECTED_PEERS) {
+      this.log.error(
+        `Connected to ${CHAIN_TIP_NUMBER_OF_CONNECTED_PEERS} peers, sending GET_CHAIN_TIP message.`,
+      );
+      this._ctx.peerManager.broadcast({
+        type: MessageType.GET_CHAIN_TIP,
+      });
+    }
   }
   private onHandleError(error: Error): void {
     this.log.error({ err: error }, "Message handler failed");
     if (error instanceof ProtocolError) {
       this.send(error);
+    } else if (error instanceof MultiProtocolError) {
+      for (const err of error.errors) {
+        this.send(err);
+      }
     } else {
       this.send(
         new ProtocolError(

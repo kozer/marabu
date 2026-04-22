@@ -19,8 +19,11 @@ export interface ObjectManagerInterface {
   findObject(
     objectId: string,
     requestObject: (id: string) => void,
+    timeout?: number,
   ): Promise<ObjectData>;
   put(object: ObjectData): Promise<string>;
+  updateTip(objectId: string): Promise<void>;
+  getTip(): Promise<string>;
   close(): Promise<void>;
 }
 
@@ -31,10 +34,24 @@ class ObjectManager implements ObjectManagerInterface {
   private logger: pino.Logger;
 
   constructor(logger: pino.Logger, db?: Level) {
-    this.db =
-      db || new Level(`${DEFAULT_DB_PATH}/objects`, { valueEncoding: "json" });
+    this.db = db || new Level(`${DEFAULT_DB_PATH}/objects`, { valueEncoding: "json" });
     this.logger = logger;
     this.requestQueue = new RequestQueue(logger);
+  }
+  async updateTip(objectId: string): Promise<void> {
+    return this.db.put("tip", objectId);
+  }
+  async getTip(): Promise<string> {
+    try {
+      const tip = await this.db.get("tip");
+      if (typeof tip === "string") {
+        return tip;
+      }
+      throw new Error("Invalid tip format");
+    } catch (err) {
+      this.logger.error(`Error getting tip: ${(err as Error).message}`);
+      throw err;
+    }
   }
   async get(id: string): Promise<ObjectData> {
     const object = await this.db.get(id);
@@ -81,6 +98,7 @@ class ObjectManager implements ObjectManagerInterface {
   async findObject(
     objectId: string,
     requestObject: (id: string) => void,
+    timeout = FIND_TIMEOUT_MS,
   ): Promise<ObjectData> {
     try {
       return await this.get(objectId);
@@ -91,7 +109,9 @@ class ObjectManager implements ObjectManagerInterface {
 
     return new Promise<ObjectData>((resolve, reject) => {
       waiter = {
-        resolve,
+        resolve: (value) => {
+          resolve(value);
+        },
         timeoutId: setTimeout(() => {
           const current = this.pendingFinds.get(objectId) ?? [];
           const remaining = current.filter((w) => w !== waiter);
@@ -101,7 +121,7 @@ class ObjectManager implements ObjectManagerInterface {
             this.pendingFinds.delete(objectId);
           }
           reject(new Error(`Timeout waiting for object ${objectId}`));
-        }, FIND_TIMEOUT_MS),
+        }, timeout),
       };
 
       if (waiters.length === 0) {

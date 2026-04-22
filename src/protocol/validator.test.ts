@@ -6,13 +6,10 @@ import ProtocolError from "@/protocol/error";
 import { ErrorCode, MessageType, ObjectType, type ObjectData } from "@/protocol/types";
 import type {
   BlockMessage,
-  Connection,
-  ConnectedPeerContext,
   InputTransactionMessage,
   OutputTransactionMessage,
   TransactionMessage,
   UtxoSnapshot,
-  PeerContext,
 } from "./types";
 import { validatePeers } from "./peer.validator";
 import {
@@ -519,16 +516,12 @@ describe("PSET2 transaction vector", () => {
 });
 
 describe("validateBlock", () => {
-  test("returns null when parent UTXO is missing", async () => {
+  test("throws error when parent UTXO is missing", async () => {
     const blockManager = createFakeBlockManager({
       parentUtxo: null,
       blockTxs: [PSET3_BLOCK_TX],
     });
-    expect(
-      blockManager.validateBlock(PSET3_VALID_BLOCK, {
-        send: async () => {},
-      } as unknown as Connection),
-    ).resolves.toBeNull();
+    expect(blockManager.validateBlock(PSET3_VALID_BLOCK)).rejects.toThrowError();
   });
   test("matches the documented PSET3 coinbase txid", () => {
     expect(hash(PSET3_BLOCK_TX)).toBe(PSET3_BLOCK_TX_ID);
@@ -538,9 +531,7 @@ describe("validateBlock", () => {
       parentUtxo: new Map(),
       blockTxs: [PSET3_BLOCK_TX],
     });
-    const result = await blockManager.validateBlock(PSET3_VALID_BLOCK, {
-      send: async () => {},
-    } as unknown as Connection);
+    const result = await blockManager.validateBlock(PSET3_VALID_BLOCK);
     expect(result).not.toBeNull();
     expect(result?.blockId).toBe(hash(PSET3_VALID_BLOCK));
     expect(result?.utxoSetAfterTxApply.get(`${PSET3_BLOCK_TX_ID}:0`)).toEqual({

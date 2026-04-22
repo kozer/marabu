@@ -4,6 +4,7 @@ import {
   ObjectType,
   type BlockMessage,
   type Connection,
+  type ObjectData,
   type ObjectMessage,
   type TransactionMessage,
   type TxValidationResult,
@@ -12,7 +13,7 @@ import {
 } from "@/protocol/types";
 import type { ObjectManagerInterface } from "./objectManager";
 import type UtxoStore from "./UtxoStore";
-import ProtocolError from "@/protocol/error";
+import ProtocolError, { MultiProtocolError } from "@/protocol/error";
 import type { PeerManager } from "@/peers/peerManager";
 import type pino from "pino";
 import {
@@ -30,11 +31,12 @@ import type { TransactionManager } from "./TransactionManager";
 
 export interface BlockManagerInterface {
   getUtxoSet(blockId: string | null): Promise<UtxoSnapshot | null>;
-  getBlock(blockId: string): Promise<BlockMessage | null>;
+  findBlock(blockId: string): Promise<BlockMessage | null>;
+  getTip(): Promise<string | null>;
   getBlockTransactions(block: BlockMessage): Promise<TransactionMessage[]>;
   storeValidatedBlock(result: ValidatedBlock): Promise<void>;
-  handleIncoming(block: BlockMessage, connection: Connection): Promise<ValidatedBlock | void>;
-  validateBlock(block: BlockMessage, connection: Connection): Promise<ValidatedBlock | null>;
+  handleIncoming(block: BlockMessage, id: string): Promise<ValidatedBlock | void>;
+  validateBlock(block: BlockMessage): Promise<ValidatedBlock | null>;
   close(): Promise<void>;
 }
 
@@ -47,23 +49,15 @@ class BlockManager implements BlockManagerInterface {
     private readonly logger: pino.Logger,
   ) {}
 
-  async handleIncoming(
-    block: BlockMessage,
-    connection: Connection,
-  ): Promise<ValidatedBlock | void> {
-    const result = await this.validateBlock(block, connection);
-    if (!result) {
-      //TODO:  Parent block unknown — ignore this block for PSET 3. Remove later
-      connection.log.info(`Ignoring block: parent block not found`);
-      return;
-    }
+  async handleIncoming(block: BlockMessage, connectionId: string): Promise<ValidatedBlock | void> {
+    const result = await this.validateBlock(block);
     await this.storeValidatedBlock(result);
     this.peerManager.broadcast(
       {
         type: MessageType.IHAVEOBJECT,
         objectid: this.objectManager.id(block),
       },
-      connection.id,
+      connectionId,
     );
     return result;
     // Persist the block and its UTXO snapshot.
@@ -75,48 +69,68 @@ class BlockManager implements BlockManagerInterface {
     }
     return this.utxoStore.get(blockId);
   }
-  async getBlock(blockId: string): Promise<BlockMessage | null> {
+
+  async getTip(): Promise<string> {
     try {
-      const result = await this.objectManager.get(blockId);
+      return await this.objectManager.getTip();
+    } catch (e) {
+      this.logger.error(`Error getting tip: ${(e as Error).message}`);
+      return "";
+    }
+  }
+  async findBlock(blockId: string): Promise<BlockMessage | null> {
+    try {
+      const result = await this.objectManager.findObject(
+        blockId,
+        (id) =>
+          this.peerManager.broadcast({
+            type: MessageType.GET_OBJECT,
+            objectid: id,
+          }),
+        15_000,
+      );
+      this.logger.error(
+        `findBlock: result for block ${blockId} is ${result ? "found" : "not found"}`,
+      );
       if (result && result.type === ObjectType.BLOCK) {
+        this.logger.error(`Block ${blockId} downloaded successfully`);
         return result as BlockMessage;
       }
       return null;
     } catch (err) {
+      this.logger.error(`Error finding block ${blockId}: ${(err as Error).message}`);
       return null;
     }
   }
   async getBlockTransactions(block: BlockMessage): Promise<TransactionMessage[]> {
-    try {
-      const resolvedTxs = await Promise.all(
-        block.txids.map((txid) =>
-          this.objectManager.findObject(txid, (id) =>
-            this.peerManager.broadcast({
-              type: MessageType.GET_OBJECT,
-              objectid: id,
-            }),
-          ),
+    const results = await Promise.allSettled(
+      block.txids.map((txid) =>
+        this.objectManager.findObject(txid, (id) =>
+          this.peerManager.broadcast({
+            type: MessageType.GET_OBJECT,
+            objectid: id,
+          }),
         ),
-      );
-      return resolvedTxs.map((obj) => {
-        if (obj.type !== ObjectType.TRANSACTION) {
-          // Should this happen?
-          this.logger.error(`Expected transaction object but found object of type ${obj.type}`);
-          throw new Error("Expected transaction object but found block object");
-        }
-        return obj as TransactionMessage;
-      });
-    } catch (e) {
-      //If we cant find a tx we should throw an UNKNOWN_OBJECT per PSET 2.
-      throw new ProtocolError(
-        ErrorCode.UNKNOWN_OBJECT,
-        `Failed to find transaction in block: ${(e as Error).message}`,
-      );
+      ),
+    );
+    const firstError = results.find((result) => result.status === "rejected");
+    if (firstError) {
+      throw new ProtocolError(ErrorCode.UNKNOWN_OBJECT, "Object is not a transaction");
     }
+    const blockTxs = results.map((r) => (r as PromiseFulfilledResult<ObjectData>).value);
+    return blockTxs.map((obj) => {
+      if (obj.type !== ObjectType.TRANSACTION) {
+        // Should this happen?
+        this.logger.error(`Expected transaction object but found object of type ${obj.type}`);
+        throw new ProtocolError(ErrorCode.UNKNOWN_OBJECT, `Failed to find transaction in block`);
+      }
+      return obj as TransactionMessage;
+    });
   }
   async storeValidatedBlock(result: ValidatedBlock): Promise<void> {
     await this.objectManager.put(result.block);
     await this.utxoStore.put(result.blockId, result.utxoSetAfterTxApply);
+    await this.objectManager.updateTip(result.blockId);
   }
 
   async seedGenesis(genBlock: any, genesisId: any): Promise<void> {
@@ -126,6 +140,7 @@ class BlockManager implements BlockManagerInterface {
     };
     if (!(await this.objectManager.exists(this.objectManager.id(genesisBlock.object)))) {
       await this.objectManager.put(genesisBlock.object);
+      await this.objectManager.updateTip(this.objectManager.id(genesisBlock.object));
     }
     if (!(await this.utxoStore.has(genesisId))) {
       await this.utxoStore.put(genesisId, this.utxoStore.empty());
@@ -136,10 +151,7 @@ class BlockManager implements BlockManagerInterface {
     await this.utxoStore.close();
   }
 
-  public async validateBlock(
-    block: BlockMessage,
-    connection: Connection,
-  ): Promise<ValidatedBlock | null> {
+  public async validateBlock(block: BlockMessage): Promise<ValidatedBlock> {
     /*
 	    Check that if previd is null, then the block is the genesis block.
 			Protocol specifies that the genesis block has a specific id.
@@ -197,15 +209,26 @@ class BlockManager implements BlockManagerInterface {
 			block in your local database and gossip the block. Here, “gossip” means that you send
 			an ihaveobject message with the corresponding blockid.
 */
+    const errors: ProtocolError[] = [];
     try {
       if (block.previd === null) {
         validateGenesisBlock(block, this.objectManager);
       }
       checkPOW(block, this.objectManager);
-      //TODO: In case of not having the parent block, db will return null, and for PSET3, we will simply ignore the block. Remove later.
-      const parentUtxo = await this.getUtxoSet(block.previd);
+      let parentUtxo = await this.getUtxoSet(block.previd);
       if (!parentUtxo) {
-        return null;
+        try {
+          const result = await this.findBlock(block.previd!);
+          if (!result) {
+            throw new Error(`Parent block ${block.previd} not found`);
+          }
+          parentUtxo = await this.getUtxoSet(block.previd);
+        } catch (e) {
+          throw new ProtocolError(
+            ErrorCode.UNFINDABLE_OBJECT,
+            `Parent block ${block.previd} not found for block ${this.objectManager.id(block)}`,
+          );
+        }
       }
       // We create a copy
       const utxoSet = new Map(parentUtxo);
@@ -215,14 +238,21 @@ class BlockManager implements BlockManagerInterface {
         blockTxs = await this.getBlockTransactions(block);
       } catch (e) {
         if (e instanceof ProtocolError) {
-          connection.send(e);
+          errors.push(e);
+
+          errors.push(
+            new ProtocolError(
+              ErrorCode.UNFINDABLE_OBJECT,
+              "Block validation failed due to missing dependencies",
+            ),
+          );
+
+          // Throw the whole collection!
+          throw new MultiProtocolError(errors);
         }
-        // One of the transactions is not found. Per PSET 3, we need to send back an UNFINDABLE_OBJECT error, since a block with missing transactions is invalid.
-        throw new ProtocolError(
-          ErrorCode.UNFINDABLE_OBJECT,
-          `Block ${this.objectManager.id(block)} contains an unfindable transaction: ${(e as Error).message}`,
-        );
+        throw e;
       }
+
       checkForCoinbaseTxsInBlock(block, blockTxs, this.objectManager);
       // We know at this point that there is at most one coinbase transaction, so we can just find it instead of filtering.
       const coinbaseTx = blockTxs.find(isCoinbaseCandidate);
@@ -255,7 +285,7 @@ class BlockManager implements BlockManagerInterface {
         block,
       };
     } catch (e) {
-      if (e instanceof ProtocolError) {
+      if (e instanceof MultiProtocolError || e instanceof ProtocolError) {
         throw e;
       }
       throw new Error(`unexpected error during block validation: ${(e as Error).message}`);

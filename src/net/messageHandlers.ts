@@ -15,6 +15,7 @@ import type {
   IHaveObjectMessage,
   GetObjectMessage,
   ObjectMessage,
+  ChainTipMessage,
 } from "@/protocol/types";
 import type { ManagerSet } from "./MessageDispatcher";
 
@@ -116,9 +117,7 @@ export const getObjectHandler = async (
   } catch (e) {
     connection.log.error(`Error retrieving object ${message.objectid}: ${e}`);
   }
-  connection.send(
-    new ProtocolError(ErrorCode.UNFINDABLE_OBJECT, `Object ${message.objectid} not found`),
-  );
+  throw new ProtocolError(ErrorCode.UNFINDABLE_OBJECT, `Object ${message.objectid} not found`);
 };
 
 export const objectHandler = async (
@@ -131,20 +130,29 @@ export const objectHandler = async (
     await managers.object.get(objId);
     return;
   } catch (e) {}
-  try {
-    if (message.object.type === ObjectType.TRANSACTION) {
-      // 2. Delegate to Tx Manager
-      await managers.tx.handleIncoming(message.object, connection);
-    } else if (message.object.type === ObjectType.BLOCK) {
-      // 2. Delegate to Block Manager
-      await managers.block.handleIncoming(message.object, connection);
-    }
-  } catch (e) {
-    // Errors bubble up here from the managers
-    if (e instanceof ProtocolError) {
-      connection.send(e);
-    }
-    connection.log.error(`Failed to handle object ${objId}: ${(e as Error).message}`);
+  connection.log.error(`Received object ${objId} from ${connection.id}`);
+  if (message.object.type === ObjectType.TRANSACTION) {
+    // 2. Delegate to Tx Manager
+    await managers.tx.handleIncoming(message.object, connection);
+  } else if (message.object.type === ObjectType.BLOCK) {
+    // 2. Delegate to Block Manager
+    await managers.block.handleIncoming(message.object, connection.id);
+  }
+};
+
+export const chainTipHandler = async (
+  message: ChainTipMessage,
+  connection: Connection,
+  managers: ManagerSet,
+) => {
+  connection.log.error(`Received chain tip ${message.blockid} from ${connection.id}`);
+  const tip = await managers.block.getTip();
+  connection.log.error(
+    `Received chain tip ${message.blockid} from ${connection.id}, current tip is ${tip}`,
+  );
+  if (message.blockid > tip) {
+    connection.log.error("start syncing to new tip since it is higher than current tip");
+    await managers.block.findBlock(message.blockid);
   }
 };
 
@@ -164,6 +172,7 @@ export const messageHandlers: Record<
   [MessageType.PEERS]: peersHandler as unknown as GenericHandler,
   [MessageType.ERROR]: errorHandler as unknown as GenericHandler,
   [MessageType.GET_CHAIN_TIP]: getChainTipHandler as unknown as GenericHandler,
+  [MessageType.CHAIN_TIP]: chainTipHandler as unknown as GenericHandler,
   [MessageType.GET_MEMPOOL]: getMempoolHandler as unknown as GenericHandler,
   [MessageType.MEMPOOL]: memPoolHandler as unknown as GenericHandler,
   [MessageType.IHAVEOBJECT]: iHaveObjectHandler as unknown as GenericHandler,

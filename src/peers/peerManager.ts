@@ -33,7 +33,7 @@ export class PeerManager {
   private knownPeers: Map<string, KnownPeerRecord>;
   private penalties: Map<string, PenaltyRecord>;
   private readonly store: PeerStore;
-  private readonly myNode = `${SERVER_HOST}:${SERVER_PORT}`;
+  private readonly myNode = process.env.OVERRIDE_NODE || `${SERVER_HOST}:${SERVER_PORT}`;
   private readonly logger: any;
   private readonly connectionRegistry: ConnectionRegistry;
 
@@ -45,10 +45,7 @@ export class PeerManager {
     this.connectionRegistry = new ConnectionRegistry(logger);
   }
 
-  private getOrCreatePeerRecord(
-    peer: string,
-    sourcePeerId?: string,
-  ): KnownPeerRecord {
+  private getOrCreatePeerRecord(peer: string, sourcePeerId?: string): KnownPeerRecord {
     const existing = this.knownPeers.get(peer);
     if (existing) {
       if (sourcePeerId) {
@@ -154,9 +151,7 @@ export class PeerManager {
     }
 
     if (peersToRemove > 0) {
-      this.logger.info(
-        `Pruned ${peersToRemove} stale peer(s) from address book.`,
-      );
+      this.logger.info(`Pruned ${peersToRemove} stale peer(s) from address book.`);
     }
 
     return peersToRemove;
@@ -271,9 +266,7 @@ export class PeerManager {
     }
     if (newPeers.length > 0) {
       await this.pruneStalePeers();
-      this.logger.info(
-        `Added ${newPeers.length} new peer(s): ${newPeers.join(", ")}`,
-      );
+      this.logger.info(`Added ${newPeers.length} new peer(s): ${newPeers.join(", ")}`);
       await this.save();
     }
   }
@@ -282,8 +275,7 @@ export class PeerManager {
     try {
       const storedState = await this.store.load();
       const storedPeers = storedState.peers;
-      const peersToLoad =
-        storedPeers.length === 0 ? BOOTSTRAP_PEERS : storedPeers;
+      const peersToLoad = storedPeers.length === 0 ? BOOTSTRAP_PEERS : storedPeers;
       this.logger.info(`My node address: ${this.myNode}`);
 
       for (const peer of peersToLoad) {
@@ -368,19 +360,13 @@ export class PeerManager {
     }
 
     penalty.invalidMessageCount += 1;
-    this.logger.warn(
-      `Peer ${peer} sent invalid data (${penalty.invalidMessageCount}): ${reason}`,
-    );
+    this.logger.warn(`Peer ${peer} sent invalid data (${penalty.invalidMessageCount}): ${reason}`);
 
     if (penalty.invalidMessageCount >= INVALID_MESSAGE_THRESHOLD) {
       const penaltyKey = this.toPenaltyKey(peer);
-      const ttlMs =
-        Math.pow(2, penalty.invalidMessageCount) *
-        INVALID_MESSAGE_BLACKLIST_TTL;
+      const ttlMs = Math.pow(2, penalty.invalidMessageCount) * INVALID_MESSAGE_BLACKLIST_TTL;
       penalty.blacklistedExpiresAt = Date.now() + ttlMs;
-      this.logger.warn(
-        `Blacklisted host ${penaltyKey} for ${ttlMs}ms. Reason: ${reason}`,
-      );
+      this.logger.warn(`Blacklisted host ${penaltyKey} for ${ttlMs}ms. Reason: ${reason}`);
       for (const connection of this.connectionRegistry.getConnectedPeers()) {
         if (this.toPenaltyKey(connection.id) !== penaltyKey) {
           continue;

@@ -29,5 +29,15 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false
-  }
+  },
+  "exclude": [
+    "node_modules",
+    "scripts",
+    "dist",
+    "build",
+    "e2e_testdb",
+    "e2e_peers.json",
+    "**/*.test.ts",
+    "**/*.spec.ts"
+  ]
 }

@@ -1,7 +1,14 @@
 export const SEPARATOR = "\n";
-export const SERVER_PORT = 18018;
-const isProd = process.env.NODE_ENV === "production";
-export const SERVER_HOST = isProd ? "95.179.181.27" : "0.0.0.0";
+export const SERVER_PORT = isNaN(Number(process.env.EXTERNAL_PORT))
+  ? 18018
+  : Number(process.env.EXTERNAL_PORT);
+export const isProd = process.env.NODE_ENV === "production";
+export const isTest = process.env.NODE_ENV === "test";
+export const SERVER_HOST = isTest
+  ? "0.0.0.0"
+  : isProd
+    ? "95.179.181.27"
+    : process.env.EXTERNAL_HOST || "0.0.0.0";
 
 export const BOOTSTRAP_PEERS = [
   "95.179.158.137:18018",
@@ -25,3 +32,5 @@ export const MAX_PEERS_PER_SOURCE = 64;
 export const STALE_PEER_MAX_AGE_TTL = 2 * 24 * 60 * 60 * 1000;
 export const INVALID_MESSAGE_THRESHOLD = 100;
 export const INVALID_MESSAGE_BLACKLIST_TTL = 60 * 1000;
+
+export const CHAIN_TIP_NUMBER_OF_CONNECTED_PEERS = 5;
