@@ -10,6 +10,7 @@ export interface UtxoStoreInterface {
   has(blockId: string): Promise<boolean>;
   get(blockId: string): Promise<UtxoSnapshot | null>;
   put(blockId: string, snapshot: UtxoSnapshot): Promise<void>;
+  delete(blockId: string): Promise<void>;
 }
 
 class UtxoStore implements UtxoStoreInterface {
@@ -31,6 +32,18 @@ class UtxoStore implements UtxoStoreInterface {
   }
   async has(blockId: string): Promise<boolean> {
     return this.db.has(blockId);
+  }
+  async delete(blockId: string): Promise<void> {
+    const prefix = `block:${blockId}:utxo:`;
+    const batch = this.db.batch();
+    batch.del(`status:${blockId}`);
+    for await (const [key] of this.db.iterator({
+      gt: prefix,
+      lt: prefix + "\xff",
+    })) {
+      batch.del(key);
+    }
+    await batch.write();
   }
   async get(blockId: string): Promise<UtxoSnapshot | null> {
     const snapshot: UtxoSnapshot = new Map();
@@ -58,10 +71,8 @@ class UtxoStore implements UtxoStoreInterface {
   async put(blockId: string, snapshot: UtxoSnapshot): Promise<void> {
     const batch = this.db.batch();
 
-    // 1. Mark this block as "having a state"
     batch.put(`status:${blockId}`, "valid");
 
-    // 2. Save individual UTXOs
     for (const [utxoKey, entry] of snapshot) {
       const dbKey = `block:${blockId}:utxo:${utxoKey}`;
       batch.put(dbKey, entry);

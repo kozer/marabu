@@ -266,7 +266,9 @@ export class PeerManager {
     }
     if (newPeers.length > 0) {
       await this.pruneStalePeers();
-      this.logger.info(`Added ${newPeers.length} new peer(s): ${newPeers.join(", ")}`);
+      this.logger.info(
+        `Added ${newPeers.length} new peer(s): ${newPeers.join(", ").slice(0, 100)}...`,
+      );
       await this.save();
     }
   }

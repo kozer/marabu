@@ -11,7 +11,7 @@ export async function parseMessage(
   msg: string,
   ctx: ConnectedPeerContext,
 ): Promise<ValidMessage | null> {
-  ctx.logger.info(`Message to parse ${msg.slice(0, 200)}...`);
+  ctx.logger.info(`Message to parse ${msg.slice(0, 400)}...`);
   let message;
   try {
     message = JSON.parse(msg);
@@ -30,6 +30,7 @@ export async function parseMessage(
   try {
     message = MessageSchema.parse(message);
   } catch (error) {
+    ctx.logger.info(`Message type: ${message?.type}`);
     if (error instanceof z.ZodError) {
       const tree = z.treeifyError<ValidMessage>(error as z.ZodError<ValidMessage>);
       if (tree.properties?.type?.errors?.includes("Invalid input")) {

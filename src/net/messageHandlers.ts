@@ -138,10 +138,8 @@ export const objectHandler = async (
   } catch (e) {}
   connection.log.error(`Received object ${objId} from ${connection.id}`);
   if (message.object.type === ObjectType.TRANSACTION) {
-    // 2. Delegate to Tx Manager
     await managers.tx.handleIncoming(message.object, connection);
   } else if (message.object.type === ObjectType.BLOCK) {
-    // 2. Delegate to Block Manager
     await managers.block.handleIncoming(message.object, connection.id);
   }
 };
@@ -151,15 +149,8 @@ export const chainTipHandler = async (
   connection: Connection,
   managers: ManagerSet,
 ) => {
-  connection.log.error(`Received chain tip ${message.blockid} from ${connection.id}`);
-  const tip = managers.block.getTip();
-  connection.log.error(
-    `Received chain tip ${message.blockid} from ${connection.id}, current tip is ${tip}`,
-  );
-  if (message.blockid > tip) {
-    connection.log.error("start syncing to new tip since it is higher than current tip");
-    await managers.block.findBlock(message.blockid);
-  }
+  connection.log.error("start syncing to new tip since it is higher than current tip");
+  await managers.block.handleIncoming(message.blockid, connection.id);
 };
 
 type GenericHandler = (

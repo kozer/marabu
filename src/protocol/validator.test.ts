@@ -63,6 +63,11 @@ function createFakeBlockManager(args: {
       tip: "",
     }),
     exists: async () => true,
+    getBlockHeight: async (blockId: string) => {
+      if (blockId === PROD_GENESIS_BLOCK_ID) return 0;
+      if (blockId) return 1;
+      return null;
+    },
     put: async () => {},
     findObject: async (id: string) => {
       const tx = args.blockTxs?.find((tx) => hash(tx) === id);
@@ -553,8 +558,8 @@ describe("validateBlock", () => {
     });
     const result = await blockManager.validateBlock(PSET3_VALID_BLOCK);
     expect(result).not.toBeNull();
-    expect(result?.blockId).toBe(hash(PSET3_VALID_BLOCK));
-    expect(result?.utxoSetAfterTxApply.get(`${PSET3_BLOCK_TX_ID}:0`)).toEqual({
+    expect(result?.height).toBe(1);
+    expect(result?.utxoSet.get(`${PSET3_BLOCK_TX_ID}:0`)).toEqual({
       txid: PSET3_BLOCK_TX_ID,
       index: 0,
       output: PSET3_BLOCK_TX.outputs[0]!,

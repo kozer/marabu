@@ -21,10 +21,11 @@ export interface ObjectManagerInterface {
     requestObject: (id: string) => void,
     timeout?: number,
   ): Promise<ObjectData>;
-  put(object: ObjectData): Promise<string>;
+  put(object: ObjectData, height?: number): Promise<string>;
   getChainState(): Promise<ChainState>;
-  updateChainState(tipId: string, height: number): Promise<void>;
+  putChainState(blockId: string, height: number): Promise<void>;
   getBlockHeight(blockId: string): Promise<number | null>;
+  delete(obj: ObjectData, height?: number): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -42,16 +43,20 @@ class ObjectManager implements ObjectManagerInterface {
   async getBlockHeight(blockId: string): Promise<number | null> {
     try {
       const h = await this.db.get(`height:${blockId}`);
-      return parseInt(h, 10);
+      const result = parseInt(h, 10);
+      if (isNaN(result)) {
+        this.logger.warn(`Invalid height value for block ${blockId}: ${h}`);
+        return null;
+      }
+      return result;
     } catch (err: any) {
       if (err.notFound) return null;
       throw err;
     }
   }
-  async updateChainState(tip: string, height: number): Promise<void> {
+  async putChainState(blockId: string, height: number): Promise<void> {
     const batch = this.db.batch();
-    batch.put(`height:${tip}`, height.toString());
-    batch.put("meta:tip", tip);
+    batch.put("meta:tip", blockId);
     batch.put("meta:height", height.toString());
     await batch.write();
   }
@@ -66,11 +71,11 @@ class ObjectManager implements ObjectManagerInterface {
     const tipId = tipResult.status === "fulfilled" ? (tipResult.value as string) : "";
 
     const height =
-      heightResult.status === "fulfilled" ? parseInt(heightResult.value as string, 10) : 0;
+      heightResult.status === "fulfilled" ? parseInt(heightResult.value as string, 10) : -1;
 
     return {
       tip: tipId || "",
-      height: isNaN(height) ? 0 : height,
+      height: isNaN(height) ? -1 : height,
     };
   }
   async get(id: string): Promise<ObjectData> {
@@ -81,10 +86,7 @@ class ObjectManager implements ObjectManagerInterface {
     return object as unknown as ObjectData;
   }
 
-  async put(object: ObjectData): Promise<string> {
-    const objectId = this.id(object);
-    await this.db.put(objectId, object as any);
-
+  private async resolvePendingFinds(objectId: string, object: ObjectData) {
     const waiters = this.pendingFinds.get(objectId);
     if (waiters) {
       for (const waiter of waiters) {
@@ -94,8 +96,29 @@ class ObjectManager implements ObjectManagerInterface {
       }
       this.pendingFinds.delete(objectId);
     }
+  }
+
+  async put(object: ObjectData, height?: number): Promise<string> {
+    const objectId = this.id(object);
+
+    const batch = this.db.batch();
+    batch.put(objectId, object as any);
+    if (height !== undefined && object.type === "block") {
+      batch.put(`height:${objectId}`, height.toString());
+    }
+    await batch.write();
+    this.resolvePendingFinds(objectId, object);
 
     return objectId;
+  }
+  async delete(obj: ObjectData, height?: number): Promise<void> {
+    const batch = this.db.batch();
+    const objectId = this.id(obj);
+    batch.del(objectId);
+    if (height !== undefined && obj.type === "block") {
+      batch.del(`height:${objectId}`);
+    }
+    await batch.write();
   }
 
   id(obj: unknown): string {

@@ -66,22 +66,25 @@ export class PeerConnection implements Connection {
 
     this.socket.on("error", async (err) => {
       await this._ctx.peerManager.reportConnectionFailure(this.id);
-
       this._ctx.peerManager.unregisterConnection(this.id);
-      this.socket.destroy();
-      this.log.warn(`Connection error for ${this.id}: ${err.message}`);
+      this.onHandleError(new ProtocolError(ErrorCode.INTERNAL_ERROR, "Connection error occurred."));
+      this.log.trace(`Connection error for ${this.id}: ${err.message}`);
     });
 
     this.socket.on("timeout", async () => {
-      this.log.warn(`Connection timeout for ${this.id}`);
       await this._ctx.peerManager.reportConnectionFailure(this.id);
 
       this._ctx.peerManager.unregisterConnection(this.id);
-      this.socket.destroy();
+      this.onHandleError(
+        new ProtocolError(ErrorCode.INTERNAL_ERROR, "Connection timed out due to inactivity."),
+      );
     });
 
     this.socket.on("finish", () => {
       this._ctx.peerManager.unregisterConnection(this.id);
+      this.onHandleError(
+        new ProtocolError(ErrorCode.INTERNAL_ERROR, "Connection finished unexpectedly."),
+      );
       this.log.debug(`Socket finished for ${this.id}`);
     });
   }
@@ -99,7 +102,7 @@ export class PeerConnection implements Connection {
     this.log.error(
       `Outbound connections: ${this._ctx.peerManager.outboundConnectionCount}, Inbound connections: ${this._ctx.peerManager.inboundConnectionCount}`,
     );
-    if (this._ctx.peerManager.outboundConnectionCount === CHAIN_TIP_NUMBER_OF_CONNECTED_PEERS) {
+    if (this._ctx.peerManager.totalConnections % CHAIN_TIP_NUMBER_OF_CONNECTED_PEERS === 0) {
       this.log.error(
         `Connected to ${CHAIN_TIP_NUMBER_OF_CONNECTED_PEERS} peers, sending GET_CHAIN_TIP message.`,
       );
@@ -109,14 +112,23 @@ export class PeerConnection implements Connection {
     }
   }
   private onHandleError(error: Error): void {
-    this.log.error({ err: error }, "Message handler failed");
+    let isInvalidHandshakeOrFormat = false;
     if (error instanceof ProtocolError) {
+      this.log.trace(`Protocol error for ${this.id}: ${error.name} - ${error.description}`);
+      if (error.name === ErrorCode.INVALID_HANDSHAKE || error.name === ErrorCode.INVALID_FORMAT) {
+        isInvalidHandshakeOrFormat = true;
+      }
       this.send(error);
     } else if (error instanceof MultiProtocolError) {
       for (const err of error.errors) {
+        this.log.trace(`Protocol error for ${this.id}: ${err.name} - ${err.description}`);
+        if (err.name === ErrorCode.INVALID_HANDSHAKE || err.name === ErrorCode.INVALID_FORMAT) {
+          isInvalidHandshakeOrFormat = true;
+        }
         this.send(err);
       }
     } else {
+      this.log.trace({ err: error }, `Unexpected error for ${this.id}`);
       this.send(
         new ProtocolError(
           ErrorCode.INTERNAL_ERROR,
@@ -124,7 +136,9 @@ export class PeerConnection implements Connection {
         ),
       );
     }
-    this.socket.end();
+    if (isInvalidHandshakeOrFormat) {
+      this.socket.end();
+    }
     return;
   }
 
@@ -149,7 +163,6 @@ export class PeerConnection implements Connection {
           return;
         }
         await this._ctx.dispatcher.dispatch(message, this);
-        this.log.info({ type: message.type }, `[${this._ctx.id}]: Received message`);
       } catch (error) {
         this.onHandleError(error as Error);
       }

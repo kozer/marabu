@@ -1,7 +1,4 @@
-import {
-  QUEUE_DELAY_PER_BATCH_MS,
-  REQUEST_BATCH_SIZE,
-} from "@/shared/constants";
+import { QUEUE_DELAY_PER_BATCH_MS, REQUEST_BATCH_SIZE } from "@/shared/constants";
 import type pino from "pino";
 
 class RequestQueue {
@@ -15,6 +12,10 @@ class RequestQueue {
   private processing = false;
 
   add(id: string, broadcastFn: (id: string) => void) {
+    if (this.queue.some((item) => item.id === id)) {
+      this.log.debug(`Request for ${id} is already in the queue, skipping`);
+      return;
+    }
     this.queue.push({ id, broadcastFn });
     if (!this.processing) {
       this.process();
@@ -29,15 +30,11 @@ class RequestQueue {
         try {
           broadcastFn(id);
         } catch (err) {
-          this.log.error(
-            `Error broadcasting request for ${id}: ${(err as Error).message}`,
-          );
+          this.log.error(`Error broadcasting request for ${id}: ${(err as Error).message}`);
         }
       }
       if (this.queue.length > 0) {
-        await new Promise((resolve) =>
-          setTimeout(resolve, QUEUE_DELAY_PER_BATCH_MS),
-        );
+        await new Promise((resolve) => setTimeout(resolve, QUEUE_DELAY_PER_BATCH_MS));
       }
     }
     this.processing = false;

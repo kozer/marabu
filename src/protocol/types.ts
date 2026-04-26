@@ -30,17 +30,17 @@ export const TARGET = isTest
   : "00000000abc00000000000000000000000000000000000000000000000000000";
 
 export const GENESIS_BLOCK_ID = isTest
-  ? "94680967e7bd6671ccc0934dff1811e1762dc72d9fedecef97c291087f3865a5"
+  ? "968de9ad078cb00e0ea8f9e023aeba115588f4a9891daa7196a786c342dc60ee"
   : "00000000522473196b73bc619a8b18472c4cb4c6caf785a13fa32aaae7222ff6";
 
 // TODO: Use it to seed database for PSET 3, to have a block to start from. Remove in PSET 4, and restore to objectManager.test.ts for testing purposes.
 export const GENESIS_BLOCK: BlockMessage = isTest
   ? {
       T: TARGET,
-      created: 0,
-      miner: "dev",
+      created: 1771159355,
+      miner: "Marabu",
       nonce: "0000000000000000000000000000000000000000000000000000000000000000",
-      note: "dev genesis",
+      note: "Financial Times 2026-02-13: Crypto battle",
       previd: null,
       txids: [],
       type: ObjectType.BLOCK,
@@ -276,10 +276,9 @@ export type UtxoEntry = {
 export type UtxoSnapshot = Map<UtxoKey, UtxoEntry>;
 export type UtxoRow = UtxoEntry | string;
 
-export type ValidatedBlock = {
-  blockId: string;
-  block: BlockMessage;
-  utxoSetAfterTxApply: UtxoSnapshot;
+export type ValidateResult = {
+  height: number;
+  utxoSet: UtxoSnapshot;
 };
 
 export type ChainState = {

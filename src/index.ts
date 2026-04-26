@@ -16,6 +16,7 @@ import { TransactionManager } from "./storage/TransactionManager";
 export type NodeOptions = {
   dbPath?: string;
   peersFile?: string;
+  seed: boolean;
 };
 
 export type NodeHandle = {
@@ -33,6 +34,8 @@ export async function startNode(opts?: NodeOptions): Promise<NodeHandle> {
   const utxosDb = new Level<string, UtxoRow>(`${dbPath}/utxos`, {
     valueEncoding: "json",
   });
+  await objectsDb.open();
+  await utxosDb.open();
   const objectManager = new ObjectManager(logger, objectsDb);
   const utxoStore = new UtxoStore(logger, utxosDb);
   const transactionManager = new TransactionManager(objectManager, peerManager, logger);
@@ -43,11 +46,15 @@ export async function startNode(opts?: NodeOptions): Promise<NodeHandle> {
     transactionManager,
     logger,
   );
-  // TODO: Remove after PSET 3.
-  await blockManager.init(GENESIS_BLOCK, GENESIS_BLOCK_ID);
+  if (opts?.seed) {
+    await blockManager.init(GENESIS_BLOCK, GENESIS_BLOCK_ID);
+  } else {
+    await blockManager.init();
+  }
 
   try {
     // Do this so we know that the listening socket is properly set up before we run tests.
+    logger.info(`Starting server on port ${SERVER_PORT}...`);
     await new Promise<void>((resolve, reject) => {
       server.once("error", reject);
       server.listen(SERVER_PORT, () => {
@@ -57,7 +64,7 @@ export async function startNode(opts?: NodeOptions): Promise<NodeHandle> {
       });
     });
   } catch (err) {
-    logger.error(`Error starting server: ${(err as Error).message}`);
+    logger.error(`Error starting server: ${(err as Error).message} ${(err as Error).stack}`);
     await blockManager.close();
     process.exit(1);
   }
@@ -104,7 +111,7 @@ export async function startNode(opts?: NodeOptions): Promise<NodeHandle> {
 
         logger.info("Shutdown complete.");
       } catch (e) {
-        logger.error(`Error during shutdown: ${(e as Error).message}`);
+        logger.error(`Error during shutdown: ${(e as Error).message} ${(e as Error).stack}`);
       }
     },
   };

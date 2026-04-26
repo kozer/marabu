@@ -133,7 +133,7 @@ export function ensureInputsPresentInUtxo(
 }
 
 export function validateBlockTimestamp(blockCreated: number, parentCreated: number): boolean {
-  if (blockCreated < parentCreated || blockCreated > Date.now() + 2 * 60 * 1000) {
+  if (blockCreated <= parentCreated || blockCreated > Math.floor(Date.now() / 1000)) {
     throw new ProtocolError(
       ErrorCode.INVALID_BLOCK_TIMESTAMP,
       `Block timestamp ${blockCreated} is not greater than parent timestamp ${parentCreated}`,

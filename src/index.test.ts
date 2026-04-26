@@ -29,6 +29,7 @@ const logger = {
   error: (..._args: any[]) => {},
   debug: (..._args: any[]) => {},
   warn: (..._args: any[]) => {},
+  trace: (..._args: any[]) => {},
 };
 
 function createObjectManager(initialObjects: ObjectData[] = []) {
@@ -38,6 +39,19 @@ function createObjectManager(initialObjects: ObjectData[] = []) {
     has: async (id: string) => store.has(id),
     put: async (id: string, object: ObjectData) => {
       store.set(id, object);
+    },
+    batch: () => {
+      const ops: Array<{ type: string; id: string; value?: any }> = [];
+      return {
+        put: (id: string, value: any) => ops.push({ type: "put", id, value }),
+        del: (id: string) => ops.push({ type: "del", id }),
+        write: async () => {
+          for (const op of ops) {
+            if (op.type === "put") store.set(op.id, op.value);
+            else store.delete(op.id);
+          }
+        },
+      };
     },
   } as any;
 
