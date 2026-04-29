@@ -120,6 +120,9 @@ function createDeps(objects?: Record<string, ObjectData>) {
     get: async (key: string) => objects?.[key] ?? null,
     put: async () => {},
     close: async () => {},
+    id(obj: any): string {
+      return bytesToHex(blake2s(Buffer.from(canonicalize(obj)!, "utf8")));
+    },
   } as any;
   const peerManager = {
     broadcast: () => {},
@@ -500,20 +503,38 @@ describe("validateRegularTx", () => {
 
     tx.inputs![0]!.sig = await signTransaction(tx, senderPrivateKey);
     const transactionManager = new TransactionManager(deps.objectManager, deps.peerManager, logger);
+    transactionManager.initializeMempool(
+      new Map([
+        [
+          `${PREV_TX_ID}:0` as const,
+          { txid: PREV_TX_ID, index: 0, output: previousTxObject.outputs[0]! },
+        ],
+      ]),
+      [previousTxObject, tx],
+    );
 
     expect(!!(await transactionManager.validateTx(tx))).toBe(true);
   });
 
-  test("accepts PSET2 transaction example", async () => {
+  test("accepts transaction example", async () => {
     const deps = createDeps({
       [PSET2_COINBASE_ID]: PSET2_COINBASE,
     });
     const transactionManager = new TransactionManager(deps.objectManager, deps.peerManager, logger);
+    transactionManager.initializeMempool(
+      new Map([
+        [
+          `${PSET2_COINBASE_ID}:0` as const,
+          { txid: PSET2_COINBASE_ID, index: 0, output: PSET2_COINBASE.outputs[0]! },
+        ],
+      ]),
+      [PSET2_COINBASE],
+    );
 
     expect(!!(await transactionManager.validateTx(PSET2_VALID_SPEND))).toBe(true);
   });
 
-  test("rejects a tampered PSET2 signature", async () => {
+  test("rejects a tampered signature", async () => {
     const deps = createDeps({
       [PSET2_COINBASE_ID]: PSET2_COINBASE,
     });
@@ -525,6 +546,26 @@ describe("validateRegularTx", () => {
       })),
     };
     const transactionManager = new TransactionManager(deps.objectManager, deps.peerManager, logger);
+    transactionManager.initializeMempool(
+      new Map([
+        [
+          `${PSET2_COINBASE_ID}:0` as const,
+          { txid: PSET2_COINBASE_ID, index: 0, output: PSET2_COINBASE.outputs[0]! },
+        ],
+        [
+          `${PSET2_VALID_SPEND.inputs![0]!.outpoint.txid}:${PSET2_VALID_SPEND.inputs![0]!.outpoint.index}` as const,
+          {
+            txid: PSET2_VALID_SPEND.inputs![0]!.outpoint.txid,
+            index: PSET2_VALID_SPEND.inputs![0]!.outpoint.index,
+            output: {
+              pubkey: senderPubkeyHex,
+              value: 10,
+            },
+          },
+        ],
+      ]),
+      [PSET2_COINBASE, tamperedTx],
+    );
 
     await expectProtocolError(
       transactionManager.validateTx(tamperedTx),

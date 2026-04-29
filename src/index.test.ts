@@ -133,6 +133,10 @@ async function createValidTransactionForNode() {
   await objectManager.put(previousTx);
   const previousTxId = objectManager.id(previousTx);
 
+  const mempoolState = new Map();
+  mempoolState.set(`${previousTxId}:0`, { pubkey: senderPubkey, value: 50 });
+  transactionManager.initializeMempool(mempoolState, []);
+
   const tx: TransactionMessage = {
     type: ObjectType.TRANSACTION,
     inputs: [

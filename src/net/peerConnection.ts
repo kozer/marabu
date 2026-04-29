@@ -109,6 +109,10 @@ export class PeerConnection implements Connection {
       this._ctx.peerManager.broadcast({
         type: MessageType.GET_CHAIN_TIP,
       });
+
+      this._ctx.peerManager.broadcast({
+        type: MessageType.GET_MEMPOOL,
+      });
     }
   }
   private onHandleError(error: Error): void {
@@ -121,14 +125,14 @@ export class PeerConnection implements Connection {
       this.send(error);
     } else if (error instanceof MultiProtocolError) {
       for (const err of error.errors) {
-        this.log.trace(`Protocol error for ${this.id}: ${err.name} - ${err.description}`);
+        this.log.error(`Protocol error for ${this.id}: ${err.name} - ${err.description}`);
         if (err.name === ErrorCode.INVALID_HANDSHAKE || err.name === ErrorCode.INVALID_FORMAT) {
           isInvalidHandshakeOrFormat = true;
         }
         this.send(err);
       }
     } else {
-      this.log.trace({ err: error }, `Unexpected error for ${this.id}`);
+      this.log.error({ err: error }, `Unexpected error for ${this.id}`);
       this.send(
         new ProtocolError(
           ErrorCode.INTERNAL_ERROR,

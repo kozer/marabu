@@ -1,118 +1,14 @@
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { describe, test, expect, beforeAll, afterAll, afterEach } from "bun:test";
 import { Socket } from "net";
-import canonicalize from "canonicalize";
-import { blake2s } from "@noble/hashes/blake2.js";
-import { bytesToHex } from "@noble/hashes/utils.js";
-import { rmSync } from "fs";
 import { startNode, type NodeHandle } from "../index";
-import { SEPARATOR, SERVER_HOST, SERVER_PORT } from "@/shared/constants";
-import { ErrorCode } from "@/protocol/types";
-import {
-  GENESIS_BLOCK,
-  P4_GLOBAL_STORE,
-  P4_BLOCK_MISSING_PARENT,
-  P4_BLOCK_MISSING_PARENT_ID,
-  P4_BLOCK_BAD_TIMESTAMP,
-  P4_BLOCK_BAD_TIMESTAMP_ID,
-  P4_BLOCK_FUTURE,
-  P4_BLOCK_FUTURE_ID,
-  P4_BLOCK_BAD_POW,
-  P4_BLOCK_BAD_POW_ID,
-  P4_BLOCK_WRONG_CB,
-  P4_BLOCK_WRONG_CB_ID,
-  P4_BLOCK_A1,
-  P4_BLOCK_A1_ID,
-  P4_BLOCK_B1,
-  P4_BLOCK_B2,
-  P4_BLOCK_B3,
-  P4_BLOCK_B3_ID,
-} from "./fixtures";
+import { ErrorCode, GENESIS_BLOCK } from "@/protocol/types";
+import { P4_GLOBAL_STORE, TC1A, TC1B, TC1C, TC1E, TC2, TC3 } from "./fixtures/pset4";
+import { cleanDb, collectMessages, connect, oid, send, wait } from "./test_helpers";
 
 /** Always connect to the local node, not the remote bootstrap peer. */
 const E2E_DB_PATH = "./e2e_testdb_pset4";
 const E2E_PEERS_FILE = "./e2e_peers_pset4.json";
-
-function oid(obj: any): string {
-  return bytesToHex(blake2s(Buffer.from(canonicalize(obj)!, "utf8")));
-}
-
-function send(sock: Socket, msg: any) {
-  const raw = canonicalize(msg)! + SEPARATOR;
-  sock.write(raw);
-}
-
-function connect(): Promise<Socket> {
-  return new Promise((resolve, reject) => {
-    const sock = new Socket();
-    sock.connect(SERVER_PORT, SERVER_HOST, () => resolve(sock));
-    sock.on("error", reject);
-  });
-}
-
-function collectMessages(
-  sock: Socket,
-  timeoutMs: number,
-  objectStore?: Map<string, any>,
-): Promise<any[]> {
-  const messages: any[] = [];
-  let buf = "";
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      sock.removeAllListeners("data");
-      resolve(messages);
-    }, timeoutMs);
-
-    sock.on("data", (data) => {
-      buf += data.toString();
-      const parts = buf.split(SEPARATOR);
-      buf = parts.pop()!;
-      for (const raw of parts) {
-        if (!raw.trim()) continue;
-        try {
-          const msg = JSON.parse(raw);
-          messages.push(msg);
-          if (
-            objectStore &&
-            msg.type === "getobject" &&
-            msg.objectid &&
-            objectStore.has(msg.objectid)
-          ) {
-            send(sock, {
-              type: "object",
-              object: objectStore.get(msg.objectid),
-            });
-          }
-        } catch {
-          // ignore parse errors
-        }
-      }
-    });
-
-    sock.on("close", () => {
-      clearTimeout(timer);
-      resolve(messages);
-    });
-    sock.on("error", () => {
-      clearTimeout(timer);
-      resolve(messages);
-    });
-  });
-}
-
-async function wait(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-function cleanDb() {
-  try {
-    rmSync(E2E_DB_PATH, { recursive: true, force: true });
-  } catch {}
-  try {
-    rmSync(E2E_PEERS_FILE, { force: true });
-  } catch {}
-}
-
-const GLOBAL_STORE = new Map<string, any>(Object.entries(P4_GLOBAL_STORE));
+const GLOBAL_STORE = new Map<string, any>(P4_GLOBAL_STORE);
 
 // ── Node lifecycle ──────────────────────────────────────
 
@@ -120,8 +16,12 @@ let node: NodeHandle;
 
 describe("pset4", () => {
   beforeAll(async () => {
-    cleanDb();
-    node = await startNode({ dbPath: E2E_DB_PATH, peersFile: E2E_PEERS_FILE, seed: true });
+    cleanDb(E2E_DB_PATH, E2E_PEERS_FILE);
+    node = await startNode({
+      dbPath: E2E_DB_PATH,
+      peersFile: E2E_PEERS_FILE,
+      isolated: true,
+    });
     await wait(1500);
   }, 10_000);
 
@@ -129,7 +29,7 @@ describe("pset4", () => {
     try {
       await node.shutdown();
     } catch {}
-    cleanDb();
+    cleanDb(E2E_DB_PATH, E2E_PEERS_FILE);
   }, 5_000);
 
   // Seed genesis before invalid blockchain tests
@@ -149,7 +49,7 @@ describe("pset4", () => {
     send(sock2, { agent: "Grader 2", type: "hello", version: "0.10.0" });
     await collectMessages(sock2, 500);
 
-    send(sock1, { type: "object", object: P4_BLOCK_MISSING_PARENT });
+    send(sock1, { type: "object", object: TC1A.BLOCK });
 
     const [msgs1, msgs2] = await Promise.all([
       collectMessages(sock1, 8000),
@@ -162,7 +62,7 @@ describe("pset4", () => {
     expect(errorMsg).toBeDefined();
 
     const gossipMsg = msgs2.find(
-      (m: any) => m.type === "ihaveobject" && m.objectid === P4_BLOCK_MISSING_PARENT_ID,
+      (m: any) => m.type === "ihaveobject" && m.objectid === TC1A.BLOCK_ID,
     );
     expect(gossipMsg).toBeUndefined();
 
@@ -179,7 +79,7 @@ describe("pset4", () => {
     send(sock2, { agent: "Grader 2", type: "hello", version: "0.10.0" });
     await collectMessages(sock2, 500);
 
-    send(sock1, { type: "object", object: P4_BLOCK_BAD_TIMESTAMP });
+    send(sock1, { type: "object", object: TC1B.BLOCK });
 
     const [msgs1, msgs2] = await Promise.all([
       collectMessages(sock1, 5000),
@@ -192,7 +92,7 @@ describe("pset4", () => {
     expect(errorMsg).toBeDefined();
 
     const gossipMsg = msgs2.find(
-      (m: any) => m.type === "ihaveobject" && m.objectid === P4_BLOCK_BAD_TIMESTAMP_ID,
+      (m: any) => m.type === "ihaveobject" && m.objectid === TC1B.BLOCK_ID,
     );
     expect(gossipMsg).toBeUndefined();
 
@@ -209,7 +109,7 @@ describe("pset4", () => {
     send(sock2, { agent: "Grader 2", type: "hello", version: "0.10.0" });
     await collectMessages(sock2, 500);
 
-    send(sock1, { type: "object", object: P4_BLOCK_FUTURE });
+    send(sock1, { type: "object", object: TC1C.BLOCK });
 
     const [msgs1, msgs2] = await Promise.all([
       collectMessages(sock1, 5000),
@@ -222,7 +122,7 @@ describe("pset4", () => {
     expect(errorMsg).toBeDefined();
 
     const gossipMsg = msgs2.find(
-      (m: any) => m.type === "ihaveobject" && m.objectid === P4_BLOCK_FUTURE_ID,
+      (m: any) => m.type === "ihaveobject" && m.objectid === TC1C.BLOCK_ID,
     );
     expect(gossipMsg).toBeUndefined();
 
@@ -282,11 +182,11 @@ describe("pset4", () => {
     send(sock2, { agent: "Grader 2", type: "hello", version: "0.10.0" });
     await collectMessages(sock2, 500);
 
-    send(sock1, { type: "object", object: P4_BLOCK_WRONG_CB });
+    send(sock1, { type: "object", object: TC1E.BLOCK });
 
     const [msgs1, msgs2] = await Promise.all([
       collectMessages(sock1, 5000, GLOBAL_STORE),
-      collectMessages(sock2, 5000),
+      collectMessages(sock2, 5000, GLOBAL_STORE),
     ]);
 
     const errorMsg = msgs1.find(
@@ -295,7 +195,7 @@ describe("pset4", () => {
     expect(errorMsg).toBeDefined();
 
     const gossipMsg = msgs2.find(
-      (m: any) => m.type === "ihaveobject" && m.objectid === P4_BLOCK_WRONG_CB_ID,
+      (m: any) => m.type === "ihaveobject" && m.objectid === TC1E.BLOCK_ID,
     );
     expect(gossipMsg).toBeUndefined();
 
@@ -306,30 +206,30 @@ describe("pset4", () => {
   // ── 2: Longest chain rule via getchaintip ─────────────
   test("2) Longest chain is selected — getchaintip returns longest tip", async () => {
     const sock = await connect();
+    let msgs = [];
 
     send(sock, { agent: "Grader 1", type: "hello", version: "0.10.0" });
-    await collectMessages(sock, 500);
-
+    msgs = await collectMessages(sock, 500);
     send(sock, { type: "object", object: GENESIS_BLOCK });
-    await collectMessages(sock, 2000);
+    msgs = await collectMessages(sock, 2000);
 
-    send(sock, { type: "object", object: P4_BLOCK_A1 });
-    let msgs = await collectMessages(sock, 3000, GLOBAL_STORE);
+    send(sock, { type: "object", object: TC2.A1 });
+    msgs = await collectMessages(sock, 3000, GLOBAL_STORE);
 
-    send(sock, { type: "getobject", objectid: P4_BLOCK_A1_ID });
+    send(sock, { type: "getobject", objectid: TC2.A1_ID });
     msgs = await collectMessages(sock, 3000);
     const a1Response = msgs.find(
-      (m: any) => m.type === "object" && m.object && oid(m.object) === P4_BLOCK_A1_ID,
+      (m: any) => m.type === "object" && m.object && oid(m.object) === TC2.A1_ID,
     );
     expect(a1Response).toBeDefined();
 
-    send(sock, { type: "object", object: P4_BLOCK_B1 });
+    send(sock, { type: "object", object: TC2.B1 });
     msgs = await collectMessages(sock, 3000, GLOBAL_STORE);
 
-    send(sock, { type: "object", object: P4_BLOCK_B2 });
+    send(sock, { type: "object", object: TC2.B2 });
     msgs = await collectMessages(sock, 3000, GLOBAL_STORE);
 
-    send(sock, { type: "object", object: P4_BLOCK_B3 });
+    send(sock, { type: "object", object: TC2.B3 });
     msgs = await collectMessages(sock, 3000, GLOBAL_STORE);
 
     send(sock, { type: "getchaintip" });
@@ -337,8 +237,46 @@ describe("pset4", () => {
 
     const tipMsg = msgs.find((m: any) => m.type === "chaintip");
     expect(tipMsg).toBeDefined();
-    expect(tipMsg.blockid).toBe(P4_BLOCK_B3_ID);
+    expect((tipMsg as any).blockid).toBe(TC2.B3_ID);
 
     sock.destroy();
   }, 40_000);
+
+  // ── 3: Deep reorg (fork at A1, abandons 2 blocks) ─────
+  // Chain A: genesis → A1 → A2 → A3 (height 3)
+  // Chain B: genesis → A1 → B1 → B2 → B3 → B4 (height 4)
+  // Common ancestor: A1. Abandons A2, A3. Adopts B1–B4.
+  test("3) Deep reorg — getchaintip returns deeper fork tip", async () => {
+    const sock = await connect();
+    let msgs = [];
+
+    send(sock, { agent: "Grader 1", type: "hello", version: "0.10.0" });
+    msgs = await collectMessages(sock, 500);
+
+    send(sock, { type: "object", object: GENESIS_BLOCK });
+    msgs = await collectMessages(sock, 1000);
+
+    send(sock, { type: "object", object: TC3.A3 });
+    msgs = await collectMessages(sock, 10000, GLOBAL_STORE);
+
+    // Verify tip is A3
+    send(sock, { type: "getchaintip" });
+    msgs = await collectMessages(sock, 3000);
+
+    let tipMsg = msgs.find((m: any) => m.type === "chaintip") as any;
+    expect(tipMsg).toBeDefined();
+    expect(tipMsg.blockid).toBe(TC3.A3_ID);
+
+    send(sock, { type: "object", object: TC3.B4 });
+    await collectMessages(sock, 20000, GLOBAL_STORE);
+
+    // Verify tip is B4 (reorg happened)
+    send(sock, { type: "getchaintip" });
+    msgs = await collectMessages(sock, 3000);
+    tipMsg = msgs.find((m: any) => m.type === "chaintip") as any;
+    expect(tipMsg).toBeDefined();
+    expect(tipMsg.blockid).toBe(TC3.B4_ID);
+
+    sock.destroy();
+  }, 60_000);
 });

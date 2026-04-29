@@ -1,17 +1,8 @@
 import pino from "pino";
-import { join } from "path";
 
-// const logger = pino({
-//   transport: {
-//     target: "pino-pretty",
-//     options: {
-//       colorize: true,
-//     },
-//   },
-//   level: process.env.LOG_LEVEL || "info",
-// });
 const logger = pino(
   {
+    enabled: !!process.env.NOLOG,
     level: process.env.LOG_LEVEL || "info",
   },
   pino.multistream([
@@ -19,10 +10,10 @@ const logger = pino(
       stream: pino.destination(`${process.cwd()}/logs/node.log`),
     },
     {
-      level: "info",
+      level: process.env.LOG_LEVEL || "info",
       stream: pino.transport({
         target: "pino-pretty",
-        options: { colorize: true },
+        options: { colorize: true, ignore: "pid", levelFirst: true },
       }),
     },
   ]),

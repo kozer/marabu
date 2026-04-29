@@ -16,7 +16,9 @@ import { TransactionManager } from "./storage/TransactionManager";
 export type NodeOptions = {
   dbPath?: string;
   peersFile?: string;
-  seed: boolean;
+  seed?: boolean;
+  isolated?: boolean;
+  port?: number;
 };
 
 export type NodeHandle = {
@@ -28,7 +30,10 @@ export async function startNode(opts?: NodeOptions): Promise<NodeHandle> {
   const peersFile = opts?.peersFile ?? PEERS_FILE;
 
   const peerManager = new PeerManager(new FilePeerStore(peersFile), logger);
-  await peerManager.load();
+  if (!opts?.isolated) {
+    await peerManager.load();
+  }
+
   const server = createServer();
   const objectsDb = new Level(`${dbPath}/objects`, { valueEncoding: "json" });
   const utxosDb = new Level<string, UtxoRow>(`${dbPath}/utxos`, {
@@ -57,9 +62,8 @@ export async function startNode(opts?: NodeOptions): Promise<NodeHandle> {
     logger.info(`Starting server on port ${SERVER_PORT}...`);
     await new Promise<void>((resolve, reject) => {
       server.once("error", reject);
-      server.listen(SERVER_PORT, () => {
+      server.listen(opts?.port ?? SERVER_PORT, () => {
         server.removeListener("error", reject);
-        console.log(`Server listening for connection requests on socket localhost:${SERVER_PORT}`);
         resolve();
       });
     });

@@ -258,7 +258,7 @@ export type RegularTxAmounts = {
   outputValue: number;
   fee: number;
 };
-export type TxValidationResult = {
+export type TxEnriched = {
   resolvedInputs: ResolvedInput[];
   inputValue: number;
   outputValue: number;

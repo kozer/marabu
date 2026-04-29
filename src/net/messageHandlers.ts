@@ -19,12 +19,12 @@ import type {
 } from "@/protocol/types";
 import type { ManagerSet } from "./MessageDispatcher";
 
-export const helloHandler = async (message: HelloMessage) => {
-  console.log(`Received HELLO message from ${message.agent} v${message.version}`);
+export const helloHandler = async (message: HelloMessage, connection: Connection) => {
+  connection.log.info(`Received HELLO message from ${message.agent} v${message.version}`);
 };
 
-export const textHandler = async (message: TextMessage) => {
-  console.log(`Received TEXT message: ${message.text}`);
+export const textHandler = async (message: TextMessage, connection: Connection) => {
+  connection.log.info(`Received TEXT message: ${message.text}`);
 };
 
 export const getPeersHandler = async (
@@ -32,7 +32,7 @@ export const getPeersHandler = async (
   connection: Connection,
   managers: ManagerSet,
 ) => {
-  console.log(`Received GET_PEERS message`);
+  connection.log.info(`Received GET_PEERS message from ${connection.id}`);
   connection.send({
     type: MessageType.PEERS,
     peers: managers.peer.getPeersForAdvertisement(),
@@ -59,20 +59,25 @@ export const errorHandler = async (message: ErrorMessage, connection: Connection
   connection.log.error(`Received error from client: ${message.name} - ${message.description}`);
 };
 
-export const getMempoolHandler = async (_message: GetMempoolMessage, connection: Connection) => {
-  connection.log.info(
-    `Received request for mempool from ${connection.id}, but this functionality is not implemented yet.`,
-  );
-};
-
-export const memPoolHandler = async (message: MempoolMessage, connection: Connection) => {
-  connection.log.info(
-    `Received mempool message from ${connection.id} with txids: ${message.txids.join(", ")}, but this functionality is not implemented yet.`,
-  );
+export const getMempoolHandler = async (
+  _message: GetMempoolMessage,
+  connection: Connection,
+  managers: ManagerSet,
+) => {
+  const mempool = await managers.tx.getMempool();
   connection.send({
     type: MessageType.MEMPOOL,
-    txids: [],
+    txids: mempool,
   });
+};
+
+export const memPoolHandler = async (
+  message: MempoolMessage,
+  _connection: Connection,
+  managers: ManagerSet,
+) => {
+  const txids = message.txids;
+  managers.tx.handleMempoolRequest(txids);
 };
 
 export const getChainTipHandler = async (
@@ -111,6 +116,8 @@ export const getObjectHandler = async (
   connection: Connection,
   managers: ManagerSet,
 ) => {
+  console.log(`Received GET_OBJECT for ${message.objectid} from ${connection.id}`);
+  console.log(`Requested object ${message.objectid}`);
   try {
     const obj = await managers.object.get(message.objectid);
     if (obj) {

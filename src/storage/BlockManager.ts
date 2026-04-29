@@ -6,7 +6,7 @@ import {
   type ChainState,
   type ObjectData,
   type TransactionMessage,
-  type TxValidationResult,
+  type TxEnriched,
   type UtxoSnapshot,
   type ValidateResult,
 } from "@/protocol/types";
@@ -16,11 +16,11 @@ import ProtocolError, { MultiProtocolError } from "@/protocol/error";
 import type { PeerManager } from "@/peers/peerManager";
 import type pino from "pino";
 import {
+  applyTransactionsToUtxoSet,
   applyTransactionToUtxoSet,
   checkCoinbaseFormat,
   checkForCoinbaseTxsInBlock,
   checkPOW,
-  ensureInputsPresentInUtxo,
   isCoinbaseCandidate,
   validateBlockTimestamp,
   validateGenesisBlock,
@@ -45,7 +45,6 @@ export interface BlockManagerInterface {
 
 class BlockManager implements BlockManagerInterface {
   private chainState: ChainState = { tip: "", height: -1 };
-  private root: string | null = null;
   constructor(
     private readonly objectManager: ObjectManagerInterface,
     private readonly utxoStore: UtxoStore,
@@ -68,6 +67,13 @@ class BlockManager implements BlockManagerInterface {
     } else if (genBlock && genesisId) {
       this.logger.info("Fresh database detected. Seeding provided Genesis...");
       await this.seedGenesis(genBlock, genesisId);
+    }
+    if (this.chainState.height !== -1) {
+      const tipBlock = (await this.objectManager.get(this.chainState.tip)) as BlockMessage;
+      this.transactionManager.initializeMempool(
+        await this.getUtxoSet(this.chainState.tip),
+        await this.getBlockTransactions(tipBlock),
+      );
     }
   }
 
@@ -103,11 +109,12 @@ class BlockManager implements BlockManagerInterface {
       // This  is genesis, and the block after that is empty
       return this.utxoStore.empty();
     }
-    return this.utxoStore.get(blockId);
+    return new Map((await this.utxoStore.get(blockId)) ?? []);
   }
 
   private async findBlock(blockId: string): Promise<BlockMessage> {
     try {
+      this.logger.info(`Finding block ${blockId} from peers...`);
       const result = await this.objectManager.findObject(
         blockId,
         (id) =>
@@ -136,11 +143,14 @@ class BlockManager implements BlockManagerInterface {
   async getBlockTransactions(block: BlockMessage): Promise<TransactionMessage[]> {
     const results = await Promise.allSettled(
       block.txids.map((txid) =>
-        this.objectManager.findObject(txid, (id) =>
-          this.peerManager.broadcast({
-            type: MessageType.GET_OBJECT,
-            objectid: id,
-          }),
+        this.objectManager.findObject(
+          txid,
+          (id) =>
+            this.peerManager.broadcast({
+              type: MessageType.GET_OBJECT,
+              objectid: id,
+            }),
+          isTest ? FIND_TIMEOUT_MS : 60_000,
         ),
       ),
     );
@@ -166,45 +176,108 @@ class BlockManager implements BlockManagerInterface {
   }
   async storeValidatedBlock(
     blockId: string,
-    block: ObjectData,
+    block: BlockMessage,
     result: ValidateResult,
   ): Promise<void> {
     this.logger.info(
       result,
       `Storing validated block ${blockId} at height ${result.height} with UTXO set ${result.utxoSet ? "present" : "not present"}`,
     );
-    this.logger.info(`Current root is ${this.root}.`);
     this.logger.info(
       `Current chain state before storing block: height ${this.chainState.height}, tip ${this.chainState.tip}`,
     );
+    const oldTip = this.chainState.tip;
+    const oldHeight = this.chainState.height;
+
     await this.utxoStore.put(blockId, result.utxoSet);
-
-    if (result.height >= this.chainState.height) {
-      this.logger.info(
-        `New block at height ${result.height} extends current chain height ${this.chainState.height}. Updating chain state...`,
-      );
-      await this.objectManager.putChainState(blockId, result.height);
-      //await this.reorg()
-
-      this.chainState = {
-        tip: blockId,
-        height: result.height,
-      };
-
-      this.logger.info(`Chain updated to height ${result.height} (Tip: ${blockId})`);
-    }
-    if (result.height < this.chainState.height) {
-      this.logger.warn(
-        `Received block ${blockId} at height ${result.height} is behind current chain height ${this.chainState.height}. Potential fork detected.`,
-      );
-      //  root height
-      this.logger.warn(
-        `Current root is ${this.root}, which is at height ${await this.objectManager.getBlockHeight(this.root!)}`,
-      );
-      // this.reorg()
-    }
-    this.logger.info(`Putting block ${blockId} into object manager at height ${result.height}`);
+    await this.objectManager.putChainState(blockId, result.height);
     await this.objectManager.put(block, result.height);
+
+    if (result.height > oldHeight) {
+      this.logger.info(`TRIGGERING REORG: New height ${result.height} > ${oldHeight}`);
+      await this.reorgToNewChain(blockId, block, result, oldTip, oldHeight);
+    }
+  }
+
+  async reorgToNewChain(
+    blockId: string,
+    block: BlockMessage,
+    result: ValidateResult,
+    oldTip: string,
+    oldHeight: number,
+  ): Promise<void> {
+    if (block.previd === oldTip || oldHeight === -1 || block.previd === null) {
+      // This means the new block extends our current chain, or we are at genesis, so we don't need to find common accestor.
+      await this.transactionManager.reconcileMempool(result.utxoSet, []);
+    } else {
+      // This means we were on a fork, but the new block does not extend our current chain, so we need to reorg to the new fork.
+      let oldRunningTip = oldTip;
+      let currentOldHeight = oldHeight;
+
+      let newRunningTip = blockId;
+      let currentNewHeight = result.height;
+
+      let currentNewBlock = block; // The block passed into the function
+      let currentOldBlock = null;
+      let commonAccestor = null;
+      const abandonedTxs = [];
+      this.logger.error(
+        `Reorging to new chain. Old tip: ${oldTip} at height ${oldHeight}, new tip: ${blockId} at height ${result.height}`,
+      );
+
+      // 1. Go back from the new tip to old tip till we have the same height for both chains.
+      // 2. Loop back both chains together till we find the common ancestor
+      // 3. Along the way, we collect all transactions from the blocks in the old chain that are not in the new chain to be removed from mempool.
+      while (oldRunningTip !== newRunningTip) {
+        if (currentNewHeight > currentOldHeight) {
+          newRunningTip = currentNewBlock.previd!;
+          // Fetch the prev block in the new chain till we end up to same height as old chain
+          currentNewBlock = (await this.objectManager.get(newRunningTip)) as BlockMessage;
+          currentNewHeight--;
+          this.logger.info(
+            `Stepping back on new chain to height ${currentNewHeight} (Block: ${newRunningTip})`,
+          );
+          continue;
+        }
+
+        currentOldBlock = (await this.objectManager.get(oldRunningTip)) as BlockMessage;
+        this.logger.info(
+          `Stepping back on old chain to height ${currentOldHeight} (Block: ${oldRunningTip})`,
+        );
+
+        abandonedTxs.push(...(await this.getBlockTransactions(currentOldBlock)));
+        this.logger.info(
+          `Collected transactions from old block ${oldRunningTip} to be removed from mempool if we reorg to new chain. Number of transactions: ${abandonedTxs.length}`,
+        );
+
+        if (currentOldBlock.previd === currentNewBlock.previd) {
+          // We have found the common ancestor. We stop.
+          this.logger.info(
+            `Common ancestor found at block ${currentOldBlock.previd} at height ${currentOldHeight - 1}`,
+          );
+          commonAccestor = currentOldBlock.previd!;
+          break;
+        }
+
+        oldRunningTip = currentOldBlock.previd!;
+        newRunningTip = currentNewBlock.previd!;
+        this.logger.info(
+          `Stepping back on both chains. Old chain at height ${currentOldHeight - 1} (Block: ${oldRunningTip}), new chain at height ${currentNewHeight - 1} (Block: ${newRunningTip})`,
+        );
+        currentNewBlock = (await this.objectManager.get(newRunningTip)) as BlockMessage;
+        this.logger.info(
+          `Fetched new block ${newRunningTip} at height ${currentNewHeight - 1} during reorg`,
+        );
+      }
+      // We want to remove transactions from the common ancestor to the old tip, so we reverse the order of the collected transactions to be removed from mempool.
+      abandonedTxs.reverse();
+      await this.transactionManager.reconcileMempool(result.utxoSet, abandonedTxs);
+    }
+    this.logger.info(`Chain updated to height ${result.height} (Tip: ${blockId})`);
+    this.chainState = {
+      tip: blockId,
+      height: result.height,
+    };
   }
 
   private async seedGenesis(genBlock: any, genesisId: string): Promise<void> {
@@ -250,7 +323,7 @@ class BlockManager implements BlockManagerInterface {
 			VERIFIED BY checkPOW
 			c. Check the proof-of-work. If not satisfied, send back an INVALID_BLOCK_POW error.
 
-			VERIFIED BY ctx.blockManager.getBlockTransactions
+			VERIFIED BY this.getBlockTransactions
 			d. Check that for all the txids in the block, you have the corresponding transaction in your
 			local object database. If not, then send a "getobject" message to your peers in order
 			to get the transaction. If you still cannot find the transaction and none of your peers
@@ -290,6 +363,7 @@ class BlockManager implements BlockManagerInterface {
 			block in your local database and gossip the block. Here, “gossip” means that you send
 			an ihaveobject message with the corresponding blockid.
 */
+    this.logger.info(`Validating block ${this.objectManager.id(block)}...`);
     const errors: ProtocolError[] = [];
     try {
       checkPOW(block, this.objectManager);
@@ -308,8 +382,6 @@ class BlockManager implements BlockManagerInterface {
 
       if (!parent) {
         parent = await this.findBlock(block.previd!);
-      } else {
-        this.root = this.objectManager.id(block);
       }
 
       let parentHeight = await this.objectManager.getBlockHeight(block.previd);
@@ -350,6 +422,11 @@ class BlockManager implements BlockManagerInterface {
         throw e;
       }
 
+      this.logger.info(
+        `Validating block ${this.objectManager.id(block)} with ${blockTxs.length} transactions. Parent height: ${parentHeight}, Parent UTXO set: ${
+          parentUtxoSet ? "found" : "not found"
+        }`,
+      );
       checkForCoinbaseTxsInBlock(block, blockTxs, this.objectManager);
       // We know at this point that there is at most one coinbase transaction, so we can just find it instead of filtering.
       const coinbaseTx = blockTxs.find(isCoinbaseCandidate);
@@ -359,29 +436,15 @@ class BlockManager implements BlockManagerInterface {
         checkCoinbaseFormat(coinbaseTx);
       }
 
-      const validatedTxs: TxValidationResult[] = [];
-      for (const tx of blockTxs) {
-        if (isCoinbaseCandidate(tx)) {
-          // We have already validated the coinbase transaction separately, so we can skip it here.
-          this.logger.info(
-            `Skipping coinbase transaction ${this.objectManager.id(tx)} during transaction validation loop.`,
-          );
-          continue;
-        }
-        // Transactions are already validated standalone before being stored in the DB.
-        // We only need to resolve inputs for UTXO checks and fee computation.
-        const result = await this.transactionManager.resolveTxDetails(tx);
-        ensureInputsPresentInUtxo(tx.inputs!, parentUtxoSet);
-        this.logger.info(
-          `Utxo set before applying transaction ${this.objectManager.id(tx)}: ${JSON.stringify(parentUtxoSet)}`,
-        );
-
-        applyTransactionToUtxoSet(tx, parentUtxoSet, this.objectManager);
-        this.logger.info(
-          `Utxo set after applying transaction ${this.objectManager.id(tx)}: ${JSON.stringify(parentUtxoSet)}`,
-        );
-        validatedTxs.push(result);
-      }
+      this.logger.info(
+        `Applying transactions to UTXO set for block ${this.objectManager.id(block)}. Number of transactions: ${blockTxs.length}`,
+      );
+      const validatedTxs: TxEnriched[] = await applyTransactionsToUtxoSet(
+        blockTxs,
+        parentUtxoSet,
+        this.objectManager,
+        this.transactionManager,
+      );
 
       //We have verified the transactions in the block, so now we can use them to verify the law of conservation for the coinbase transaction if it exists.
       if (coinbaseTx) {
@@ -390,6 +453,9 @@ class BlockManager implements BlockManagerInterface {
         applyTransactionToUtxoSet(coinbaseTx, parentUtxoSet, this.objectManager);
       }
 
+      this.logger.info(
+        `Block ${this.objectManager.id(block)} validated successfully. Returning new UTXO set and height.`,
+      );
       return {
         utxoSet: parentUtxoSet,
         height: parentHeight! + 1,

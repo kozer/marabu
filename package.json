@@ -11,7 +11,7 @@
     "watch:server": "bun --watch run dev:server",
     "watch:client": "bun --watch run dev:client",
     "test": "bun test",
-    "test:e2e": "LOG_LEVEL=error NODE_ENV=test bun test ./src/e2e/*.e2e.ts",
+    "test:e2e": "NOLOG=false LOG_LEVEL=info NODE_ENV=test bun test ./src/e2e/*.e2e.ts",
     "cov": "bun test --coverage"
   },
   "dependencies": {

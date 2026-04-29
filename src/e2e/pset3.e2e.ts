@@ -1,136 +1,23 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { Socket } from "net";
-import canonicalize from "canonicalize";
-import { blake2s } from "@noble/hashes/blake2.js";
-import { bytesToHex } from "@noble/hashes/utils.js";
-import { rmSync } from "fs";
 import { startNode, type NodeHandle } from "../index";
-import { SEPARATOR, SERVER_HOST, SERVER_PORT } from "@/shared/constants";
-import { ErrorCode } from "@/protocol/types";
-
+import { ErrorCode, GENESIS_BLOCK, GENESIS_BLOCK_ID } from "@/protocol/types";
+import { P3_GLOBAL_STORE, TC10, TC11, TC2, TC3, TC5, TC6, TC7, TC8, TC9 } from "./fixtures/pset3";
+import { cleanDb, collectMessages, connect, oid, send, wait } from "./test_helpers";
 const E2E_DB_PATH = "./e2e_testdb";
 const E2E_PEERS_FILE = "./e2e_peers.json";
 
-function oid(obj: any): string {
-  return bytesToHex(blake2s(Buffer.from(canonicalize(obj)!, "utf8")));
-}
-
-function send(sock: Socket, msg: any) {
-  const raw = canonicalize(msg)! + SEPARATOR;
-  sock.write(raw);
-}
-
-console.log(SERVER_HOST, SERVER_PORT);
-function connect(): Promise<Socket> {
-  return new Promise((resolve, reject) => {
-    const sock = new Socket();
-    sock.connect(SERVER_PORT, SERVER_HOST, () => resolve(sock));
-    sock.on("error", reject);
-  });
-}
-
-/**
- * Collect messages from the node until timeout.
- * Optionally auto-responds to `getobject` requests from a local object store.
- * Similar as Workshop 3.
- */
-function collectMessages(
-  sock: Socket,
-  timeoutMs: number,
-  objectStore?: Map<string, any>,
-): Promise<any[]> {
-  const messages: any[] = [];
-  let buf = "";
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      sock.removeAllListeners("data");
-      resolve(messages);
-    }, timeoutMs);
-
-    sock.on("data", (data) => {
-      buf += data.toString();
-      const parts = buf.split(SEPARATOR);
-      buf = parts.pop()!;
-      for (const raw of parts) {
-        if (!raw.trim()) continue;
-        try {
-          const msg = JSON.parse(raw);
-          messages.push(msg);
-          if (
-            objectStore &&
-            msg.type === "getobject" &&
-            msg.objectid &&
-            objectStore.has(msg.objectid)
-          ) {
-            send(sock, {
-              type: "object",
-              object: objectStore.get(msg.objectid),
-            });
-          }
-        } catch {
-          // ignore parse errors
-        }
-      }
-    });
-
-    sock.on("close", () => {
-      clearTimeout(timer);
-      resolve(messages);
-    });
-    sock.on("error", () => {
-      clearTimeout(timer);
-      resolve(messages);
-    });
-  });
-}
-
-async function wait(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-function cleanDb() {
-  try {
-    rmSync(E2E_DB_PATH, { recursive: true, force: true });
-  } catch {}
-  try {
-    rmSync(E2E_PEERS_FILE, { force: true });
-  } catch {}
-}
-
-import {
-  GENESIS_BLOCK,
-  GENESIS_BLOCK_ID,
-  BLOCK2,
-  BLOCK2_ID,
-  BLOCK3,
-  BLOCK3_ID,
-  BLOCK_A_5,
-  BLOCK_A_5_ID,
-  BLOCK_B_5,
-  BLOCK6,
-  BLOCK7,
-  BLOCK8,
-  BLOCK_A_9,
-  BLOCK_A_9_ID,
-  BLOCK_B_9,
-  BLOCK_A_10,
-  BLOCK_A_10_ID,
-  BLOCK_B_10,
-  BLOCK_B_10_ID,
-  BLOCK_C_10,
-  BLOCK11,
-  TX,
-  TX_OBJECTS,
-} from "./fixtures";
-
-const GLOBAL_STORE = new Map<string, any>(Object.entries(TX_OBJECTS));
+const GLOBAL_STORE = new Map<string, any>(P3_GLOBAL_STORE);
 
 let node: NodeHandle;
 
 describe("pset3", () => {
   beforeAll(async () => {
-    cleanDb();
-    node = await startNode({ dbPath: E2E_DB_PATH, peersFile: E2E_PEERS_FILE, seed: true });
+    cleanDb(E2E_DB_PATH, E2E_PEERS_FILE);
+    node = await startNode({
+      dbPath: E2E_DB_PATH,
+      peersFile: E2E_PEERS_FILE,
+      isolated: true,
+    });
     // Give the node a moment to fully initialize and attempt bootstrap peer connections
     await wait(1500);
   }, 10_000);
@@ -139,7 +26,7 @@ describe("pset3", () => {
     try {
       await node.shutdown();
     } catch {}
-    cleanDb();
+    cleanDb(E2E_DB_PATH, E2E_PEERS_FILE);
   }, 5_000);
 
   // ── Testcase 1: Must validate and store valid block ───
@@ -165,7 +52,7 @@ describe("pset3", () => {
     );
 
     expect(objectMsg).toBeDefined();
-    expect(oid(objectMsg.object)).toBe(GENESIS_BLOCK_ID);
+    expect(oid((objectMsg as any).object)).toBe(GENESIS_BLOCK_ID);
 
     sock.destroy();
   }, 10_000);
@@ -178,8 +65,8 @@ describe("pset3", () => {
   //   4. Send getobject for the block ID
   //   5. Expect the block back
   test("Must validate and store block with coinbase transaction", async () => {
-    const block2 = BLOCK2;
-    const block2Id = BLOCK2_ID;
+    const block2 = TC2.BLOCK;
+    const block2Id = TC2.BLOCK_ID;
 
     const sock = await connect();
 
@@ -196,7 +83,7 @@ describe("pset3", () => {
     );
 
     expect(objectMsg).toBeDefined();
-    expect(oid(objectMsg.object)).toBe(block2Id);
+    expect(oid((objectMsg as any).object)).toBe(block2Id);
 
     sock.destroy();
   }, 10_000);
@@ -209,8 +96,8 @@ describe("pset3", () => {
   //   4. Send getobject for the block ID
   //   5. Expect the block back
   test("Must validate and store block spending earlier coinbase", async () => {
-    const block3 = BLOCK3;
-    const block3Id = BLOCK3_ID;
+    const block3 = TC3.BLOCK3;
+    const block3Id = TC3.BLOCK3_ID;
 
     const sock = await connect();
 
@@ -226,7 +113,7 @@ describe("pset3", () => {
     );
 
     expect(objectMsg).toBeDefined();
-    expect(oid(objectMsg.object)).toBe(block3Id);
+    expect(oid((objectMsg as any).object)).toBe(block3Id);
 
     sock.destroy();
   }, 10_000);
@@ -269,9 +156,9 @@ describe("pset3", () => {
   //   Part A: Send valid block with coinbase tx, verify stored
   //   Part B: Send block that violates coinbase law of conservation
   test("Block does not satisfy coinbase law of conservation", async () => {
-    const blockA = BLOCK_A_5;
-    const blockAId = BLOCK_A_5_ID;
-    const blockB = BLOCK_B_5;
+    const blockA = TC5.BLOCK_A;
+    const blockAId = TC5.BLOCK_A_ID;
+    const blockB = TC5.BLOCK_B;
 
     const sock = await connect();
 
@@ -288,7 +175,7 @@ describe("pset3", () => {
       (m: any) => m.type === "object" && m.object && oid(m.object) === blockAId,
     );
     expect(objectMsg).toBeDefined();
-    expect(oid(objectMsg.object)).toBe(blockAId);
+    expect(oid((objectMsg as any).object)).toBe(blockAId);
 
     // Part B: Send block that violates coinbase conservation, expect error
     send(sock, { type: "object", object: blockB });
@@ -309,7 +196,7 @@ describe("pset3", () => {
   //   2. Send block with coinbase tx AND a tx spending that coinbase in same block
   //   3. Expect INVALID_TX_OUTPOINT error
   test("Coinbase spent in the same block", async () => {
-    const block = BLOCK6;
+    const block = TC6.BLOCK;
 
     const sock = await connect();
 
@@ -335,7 +222,7 @@ describe("pset3", () => {
   //   3. Node tries to fetch the unknown tx via getobject, nobody has it
   //   4. Per spec: timeout → send UNFINDABLE_OBJECT
   test("Invalid transaction (with null signature) in block", async () => {
-    const block = BLOCK7;
+    const block = TC7.BLOCK;
 
     const sock = await connect();
 
@@ -366,7 +253,7 @@ describe("pset3", () => {
   //   2. Send block with txids listing the same coinbase txid twice
   //   3. Expect INVALID_BLOCK_COINBASE error
   test("Block with two coinbase transactions", async () => {
-    const block = BLOCK8;
+    const block = TC8.BLOCK;
 
     const sock = await connect();
 
@@ -389,9 +276,9 @@ describe("pset3", () => {
   //   Part A: Send block with coinbase tx, verify stored
   //   Part B: Send block that double-spends the coinbase, expect INVALID_TX_OUTPOINT
   test("Double spending within a block", async () => {
-    const blockA = BLOCK_A_9;
-    const blockAId = BLOCK_A_9_ID;
-    const blockB = BLOCK_B_9;
+    const blockA = TC9.BLOCK_A;
+    const blockAId = TC9.BLOCK_A_ID;
+    const blockB = TC9.BLOCK_B;
 
     const sock = await connect();
 
@@ -408,7 +295,7 @@ describe("pset3", () => {
       (m: any) => m.type === "object" && m.object && oid(m.object) === blockAId,
     );
     expect(objectMsg).toBeDefined();
-    expect(oid(objectMsg.object)).toBe(blockAId);
+    expect(oid((objectMsg as any).object)).toBe(blockAId);
 
     send(sock, { type: "object", object: blockB });
 
@@ -428,11 +315,11 @@ describe("pset3", () => {
   //   Part B: Send block spending that coinbase once , verify stored
   //   Part C: Send block spending same coinbase again ,expect INVALID_TX_OUTPOINT
   test("Double spend in successive blocks", async () => {
-    const blockA = BLOCK_A_10;
-    const blockAId = BLOCK_A_10_ID;
-    const blockB = BLOCK_B_10;
-    const blockBId = BLOCK_B_10_ID;
-    const blockC = BLOCK_C_10;
+    const blockA = TC10.BLOCK_A;
+    const blockAId = TC10.BLOCK_A_ID;
+    const blockB = TC10.BLOCK_B;
+    const blockBId = TC10.BLOCK_B_ID;
+    const blockC = TC10.BLOCK_C;
 
     const sock = await connect();
 
@@ -449,7 +336,7 @@ describe("pset3", () => {
       (m: any) => m.type === "object" && m.object && oid(m.object) === blockAId,
     );
     expect(objectMsgA).toBeDefined();
-    expect(oid(objectMsgA.object)).toBe(blockAId);
+    expect(oid((objectMsgA as any).object)).toBe(blockAId);
 
     // Part B: Send block spending coinbase once (valid), wait, then request it back
     send(sock, { type: "object", object: blockB });
@@ -462,7 +349,7 @@ describe("pset3", () => {
       (m: any) => m.type === "object" && m.object && oid(m.object) === blockBId,
     );
     expect(objectMsgB).toBeDefined();
-    expect(oid(objectMsgB.object)).toBe(blockBId);
+    expect(oid((objectMsgB as any).object)).toBe(blockBId);
 
     send(sock, { type: "object", object: blockC });
 
@@ -481,9 +368,9 @@ describe("pset3", () => {
   //   Part A: Send standalone coinbase tx, then getobject for it — expect it back
   //   Part B: Send block whose tx spends a UTXO not in any previous block — expect INVALID_TX_OUTPOINT
   test("Block with transaction that spends UTXO that doesn't exist", async () => {
-    const coinbaseTx = TX_OBJECTS[TX.STANDALONE];
-    const coinbaseTxId = TX.STANDALONE;
-    const block = BLOCK11;
+    const coinbaseTx = TC11.CB;
+    const coinbaseTxId = TC11.CB_ID;
+    const block = TC11.BLOCK;
 
     const sock = await connect();
 
@@ -500,7 +387,7 @@ describe("pset3", () => {
       (m: any) => m.type === "object" && m.object && oid(m.object) === coinbaseTxId,
     );
     expect(objectMsg).toBeDefined();
-    expect(oid(objectMsg.object)).toBe(coinbaseTxId);
+    expect(oid((objectMsg as any).object)).toBe(coinbaseTxId);
 
     // Part B: Send block whose tx spends a UTXO not in any previous block's UTXO set
     send(sock, { type: "object", object: block });

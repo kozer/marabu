@@ -2,9 +2,9 @@ import z from "zod";
 import ProtocolError from "@/protocol/error";
 import {
   MessageSchema,
-  type ValidMessage,
   ErrorCode,
   type ConnectedPeerContext,
+  type ValidMessage,
 } from "@/protocol/types";
 
 export async function parseMessage(
@@ -30,26 +30,37 @@ export async function parseMessage(
   try {
     message = MessageSchema.parse(message);
   } catch (error) {
-    ctx.logger.info(`Message type: ${message?.type}`);
     if (error instanceof z.ZodError) {
-      const tree = z.treeifyError<ValidMessage>(error as z.ZodError<ValidMessage>);
-      if (tree.properties?.type?.errors?.includes("Invalid input")) {
-        ctx.logger.error(`Message validation failed: Invalid message type`);
-        await ctx.peerManager.reportInvalidPeerMessage(ctx.id, "INVALID_MESSAGE_TYPE");
+      const issues = error.issues
+        .map((iss) => `${iss.path.join(".")}: ${iss.message}${iss.input !== undefined ? ` (got: ${JSON.stringify(iss.input)})` : ""}`)
+        .join(" | ");
 
-        throw new ProtocolError(ErrorCode.INVALID_FORMAT, `Received message with invalid type`);
+      const tree = z.treeifyError(error);
+      ctx.logger.error(
+        { validationTree: tree, msg_type: message?.type },
+        `Protocol Validation Failed: ${issues}`,
+      );
+
+      const failedType = error.issues.some(
+        (iss) => iss.path[iss.path.length - 1] === "type" && iss.code === "invalid_union"
+      );
+      if (failedType) {
+        await ctx.peerManager.reportInvalidPeerMessage(ctx.id, "INVALID_MESSAGE_TYPE");
+        throw new ProtocolError(ErrorCode.INVALID_FORMAT, "Received message with invalid type");
       }
+
+      await ctx.peerManager.reportInvalidPeerMessage(ctx.id, "INVALID_MESSAGE_FIELDS");
+      throw new ProtocolError(ErrorCode.INVALID_FORMAT, `Validation failed: ${issues}`);
     }
     if (error instanceof ProtocolError) {
       ctx.logger.error(`Protocol validation failed: ${error.name}`);
       await ctx.peerManager.reportInvalidPeerMessage(ctx.id, error.name);
       throw error;
-    } else {
-      ctx.logger.error({ err: error }, "Unknown protocol message");
-      await ctx.peerManager.reportInvalidPeerMessage(ctx.id, "UNKNOWN_PROTOCOL_MESSAGE");
-
-      throw new ProtocolError(ErrorCode.INVALID_FORMAT, "Received message with unknown format");
     }
+
+    ctx.logger.error({ err: error }, "Unknown protocol message");
+    await ctx.peerManager.reportInvalidPeerMessage(ctx.id, "UNKNOWN_PROTOCOL_MESSAGE");
+    throw new ProtocolError(ErrorCode.INVALID_FORMAT, "Received message with unknown format");
   }
   return message;
 }
