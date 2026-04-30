@@ -29,7 +29,7 @@ import {
   verifyNoCoinbaseSpendingInBlock,
 } from "@/protocol/block.validator";
 import type { TransactionManager } from "./TransactionManager";
-import { FIND_TIMEOUT_MS, isTest } from "@/shared/constants";
+import { FIND_TIMEOUT_MS } from "@/shared/constants";
 
 export interface BlockManagerInterface {
   getUtxoSet(blockId: string | null): Promise<UtxoSnapshot | null>;
@@ -92,16 +92,24 @@ class BlockManager implements BlockManagerInterface {
       blockOrBlockId = await this.findBlock(blockOrBlockId);
     }
     const blockId = this.objectManager.id(blockOrBlockId);
-    const result = await this.validateBlock(blockOrBlockId);
-    await this.storeValidatedBlock(blockId, blockOrBlockId, result);
-    this.peerManager.broadcast(
-      {
-        type: MessageType.IHAVEOBJECT,
-        objectid: blockId,
-      },
-      connectionId,
-    );
-    return result;
+    try {
+      const result = await this.validateBlock(blockOrBlockId);
+      await this.storeValidatedBlock(blockId, blockOrBlockId, result);
+      this.peerManager.broadcast(
+        {
+          type: MessageType.IHAVEOBJECT,
+          objectid: blockId,
+        },
+        connectionId,
+      );
+      return result;
+    } catch (e) {
+      // Resolve findBlock() waiters with null — fail immediately
+      // instead of timing out. Parents that failed validation should
+      // not be used as valid chain predecessors.
+      this.objectManager.resolvePending(blockId, null as any);
+      throw e;
+    }
   }
 
   async getUtxoSet(blockId: string | null): Promise<UtxoSnapshot | null> {
@@ -122,7 +130,7 @@ class BlockManager implements BlockManagerInterface {
             type: MessageType.GET_OBJECT,
             objectid: id,
           }),
-        isTest ? FIND_TIMEOUT_MS : 60_000,
+        FIND_TIMEOUT_MS,
       );
       this.logger.info(
         `findBlock: result for block ${blockId} is ${result ? "found" : "not found"}`,
@@ -150,7 +158,7 @@ class BlockManager implements BlockManagerInterface {
               type: MessageType.GET_OBJECT,
               objectid: id,
             }),
-          isTest ? FIND_TIMEOUT_MS : 60_000,
+          FIND_TIMEOUT_MS,
         ),
       ),
     );

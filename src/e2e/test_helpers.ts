@@ -33,11 +33,23 @@ export function collectMessages(
   sock: Socket,
   timeoutMs: number,
   objectStore?: Map<string, unknown>,
+  until?: (msg: any) => boolean,
 ): Promise<unknown[]> {
   const messages: unknown[] = [];
   let buf = "";
+  let resolved = false;
 
   return new Promise((resolve) => {
+    const cleanup = () => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timer);
+      sock.removeListener("data", onData);
+      sock.removeListener("close", cleanup);
+      sock.removeListener("error", cleanup);
+      resolve(messages);
+    };
+
     // 1. Define the primary data handler
     const onData = (data: Buffer) => {
       buf += data.toString();
@@ -48,11 +60,6 @@ export function collectMessages(
         try {
           const msg = JSON.parse(raw);
           messages.push(msg);
-          console.log("Received message:", msg);
-          console.log(
-            `Current object store keys: ${objectStore ? JSON.stringify(Array.from(objectStore.values())) : "N/A"}`,
-          );
-
           // Auto-responder logic for tests (if objectStore is provided)
           if (
             objectStore &&
@@ -62,27 +69,20 @@ export function collectMessages(
           ) {
             send(sock, { type: "object", object: objectStore.get(msg.objectid) });
           }
-        } catch {
-          // ignore parse errors
+        } catch {}
+      }
+      if (until) {
+        for (const msg of messages) {
+          if (until(msg)) {
+            cleanup();
+            return;
+          }
         }
       }
     };
 
-    // 2. Define a unified cleanup function
-    // This is the "magic" that stops the memory leak.
-    const cleanup = () => {
-      clearTimeout(timer);
-      sock.removeListener("data", onData);
-      sock.removeListener("close", cleanup);
-      sock.removeListener("error", cleanup);
-      resolve(messages);
-    };
-
-    // 3. Start the timeout timer
     const timer = setTimeout(cleanup, timeoutMs);
 
-    // 4. Attach listeners.
-    // We use the same 'cleanup' function for everything so we can remove it.
     sock.on("data", onData);
     sock.once("close", cleanup);
     sock.once("error", cleanup);

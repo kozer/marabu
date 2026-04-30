@@ -14,10 +14,7 @@ export const PK2 = bytesToHex(await ed.getPublicKeyAsync(SK2));
 const SK3 = new Uint8Array(Buffer.from("03".repeat(32), "hex"));
 export const PK3 = bytesToHex(await ed.getPublicKeyAsync(SK3));
 
-// ═══════════════════════════════════════════════════════
 //  Testcase 2 – Block with coinbase
-// ═══════════════════════════════════════════════════════
-
 export const TC2 = (() => {
   const cb = coinbase(1, PK, BLOCK_REWARD);
   const cbId = oid(cb);
@@ -39,12 +36,8 @@ export const TC2 = (() => {
   };
 })();
 
-// ═══════════════════════════════════════════════════════
 //  Testcase 3 – Spend earlier coinbase
-// ═══════════════════════════════════════════════════════
-
 export const TC3 = await (async () => {
-  // Reuse TC2's coinbase ID
   const cb1 = TC2.CB;
   const cb1Id = TC2.CB_ID;
 
@@ -86,10 +79,7 @@ export const TC3 = await (async () => {
   };
 })();
 
-// ═══════════════════════════════════════════════════════
 //  Testcase 5 – Coinbase conservation violation
-// ═══════════════════════════════════════════════════════
-
 export const TC5 = await (async () => {
   const cb = coinbase(1, PK, BLOCK_REWARD);
   const cbId = oid(cb);
@@ -126,10 +116,7 @@ export const TC5 = await (async () => {
   };
 })();
 
-// ═══════════════════════════════════════════════════════
 //  Testcase 6 – Coinbase spent in same block
-// ═══════════════════════════════════════════════════════
-
 export const TC6 = await (async () => {
   const cb = coinbase(1, PK, BLOCK_REWARD);
   const cbId = oid(cb);
@@ -155,10 +142,7 @@ export const TC6 = await (async () => {
   };
 })();
 
-// ═══════════════════════════════════════════════════════
 //  Testcase 7 – Invalid tx (null signature) in block
-// ═══════════════════════════════════════════════════════
-
 export const TC7 = (() => {
   const cb = coinbase(1, PK, BLOCK_REWARD);
   const cbId = oid(cb);
@@ -188,10 +172,7 @@ export const TC7 = (() => {
   };
 })();
 
-// ═══════════════════════════════════════════════════════
 //  Testcase 8 – Two coinbase transactions in block
-// ═══════════════════════════════════════════════════════
-
 export const TC8 = (() => {
   const cb = coinbase(1, PK, BLOCK_REWARD);
   const cbId = oid(cb);
@@ -212,10 +193,7 @@ export const TC8 = (() => {
   };
 })();
 
-// ═══════════════════════════════════════════════════════
 //  Testcase 9 – Double spend within a block
-// ═══════════════════════════════════════════════════════
-
 export const TC9 = await (async () => {
   const cb = coinbase(1, PK2, BLOCK_REWARD);
   const cbId = oid(cb);
@@ -254,10 +232,7 @@ export const TC9 = await (async () => {
   };
 })();
 
-// ═══════════════════════════════════════════════════════
 //  Testcase 10 – Double spend in successive blocks
-// ═══════════════════════════════════════════════════════
-
 export const TC10 = await (async () => {
   const cb = coinbase(1, PK3, BLOCK_REWARD);
   const cbId = oid(cb);
@@ -307,10 +282,7 @@ export const TC10 = await (async () => {
   };
 })();
 
-// ═══════════════════════════════════════════════════════
 //  Testcase 11 – Spend UTXO not in any chain block
-// ═══════════════════════════════════════════════════════
-
 export const TC11 = await (async () => {
   const cb = coinbase(1, PK2, BLOCK_REWARD - 1);
   const cbId = oid(cb);
@@ -334,10 +306,6 @@ export const TC11 = await (async () => {
     BLOCK: block,
   };
 })();
-
-// ═══════════════════════════════════════════════════════
-//  GLOBAL_STORE – all objects the grader auto-responds with
-// ═══════════════════════════════════════════════════════
 
 export const P3_GLOBAL_STORE = new Map<string, unknown>([
   // tc2

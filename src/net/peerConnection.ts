@@ -155,21 +155,24 @@ export class PeerConnection implements Connection {
       if (!rawMessage.trim()) {
         continue;
       }
+      //Dont await processing of messages, to prevent blocking the socket's data event loop.
+      this.processMessage(rawMessage);
+    }
+  }
 
-      let message: ValidMessage | null = null;
-      try {
-        message = await parseMessage(rawMessage, this._ctx);
-        if (!message) {
-          return;
-        }
-
-        if (!checkHandshake(message, this.state)) {
-          return;
-        }
-        await this._ctx.dispatcher.dispatch(message, this);
-      } catch (error) {
-        this.onHandleError(error as Error);
+  private async processMessage(rawMessage: string): Promise<void> {
+    try {
+      const message = await parseMessage(rawMessage, this._ctx);
+      if (!message) {
+        return;
       }
+
+      if (!checkHandshake(message, this.state)) {
+        return;
+      }
+      await this._ctx.dispatcher.dispatch(message, this);
+    } catch (error) {
+      this.onHandleError(error as Error);
     }
   }
 }

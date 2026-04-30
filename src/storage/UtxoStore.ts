@@ -1,5 +1,6 @@
 import type { UtxoEntry, UtxoKey, UtxoRow, UtxoSnapshot } from "@/protocol/types";
 import { DEFAULT_DB_PATH } from "@/shared/constants";
+import LRUCache from "@/shared/lruCache";
 import { Level } from "level";
 import type pino from "pino";
 
@@ -16,9 +17,12 @@ export interface UtxoStoreInterface {
 class UtxoStore implements UtxoStoreInterface {
   private readonly db: Level<string, UtxoRow>;
   private readonly logger: pino.Logger;
+  private cache: LRUCache;
+
   constructor(logger: pino.Logger, db?: Level<string, UtxoRow>) {
     this.db = db || new Level(`${DEFAULT_DB_PATH}/utxos`, { valueEncoding: "json" });
     this.logger = logger;
+    this.cache = new LRUCache(100);
   }
   key(txid: string, index: number): UtxoKey {
     return `${txid}:${index}`;
@@ -31,6 +35,7 @@ class UtxoStore implements UtxoStoreInterface {
     return new Map(snapshot ?? []);
   }
   async has(blockId: string): Promise<boolean> {
+    if (this.cache.has(blockId)) return true;
     return this.db.has(blockId);
   }
   async delete(blockId: string): Promise<void> {
@@ -46,23 +51,31 @@ class UtxoStore implements UtxoStoreInterface {
     await batch.write();
   }
   async get(blockId: string): Promise<UtxoSnapshot | null> {
+    if (this.cache.has(blockId)) {
+      const cached = this.cache.get(blockId) as UtxoSnapshot | null;
+      // Return a clone so mutations don't affect the cached copy
+      return cached ? this.clone(cached) : null;
+    }
+
     const snapshot: UtxoSnapshot = new Map();
     const prefix = `block:${blockId}:utxo:`;
 
     try {
-      if (!(await this.db.has(`status:${blockId}`))) return null;
+      if (!(await this.db.has(`status:${blockId}`))) {
+        this.cache.put(blockId, null);
+        return null;
+      }
 
       for await (const [_key, value] of this.db.iterator({
         gt: prefix,
-        lt: prefix + "\xff", // \xff is the "highest" possible character
+        lt: prefix + "\xff",
       })) {
-        // Key is block:abc:utxo:tx123:0
-        // Value is the UtxoEntry object
         const entry = value as UtxoEntry;
         snapshot.set(this.key(entry.txid, entry.index), entry);
       }
 
-      return snapshot;
+      this.cache.put(blockId, snapshot);
+      return this.clone(snapshot);
     } catch (err) {
       this.logger.error(`Failed to stream UTXOs for ${blockId}: ${err}`);
       return null;
@@ -79,6 +92,7 @@ class UtxoStore implements UtxoStoreInterface {
     }
 
     await batch.write();
+    this.cache.put(blockId, this.clone(snapshot));
   }
 
   async close(): Promise<void> {

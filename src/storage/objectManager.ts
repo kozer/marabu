@@ -4,6 +4,7 @@ import { bytesToHex } from "@noble/hashes/utils.js";
 import { Level } from "level";
 import type { ChainState, ObjectData } from "@/protocol/types";
 import { DEFAULT_DB_PATH, FIND_TIMEOUT_MS } from "@/shared/constants";
+import LRUCache from "@/shared/lruCache";
 import RequestQueue from "./requestQueue";
 import type pino from "pino";
 
@@ -26,6 +27,7 @@ export interface ObjectManagerInterface {
   putChainState(blockId: string, height: number): Promise<void>;
   getBlockHeight(blockId: string): Promise<number | null>;
   delete(obj: ObjectData, height?: number): Promise<void>;
+  resolvePending(objectId: string, object: ObjectData): void;
   close(): Promise<void>;
 }
 
@@ -34,23 +36,35 @@ class ObjectManager implements ObjectManagerInterface {
   pendingFinds: Map<string, PendingWaiter[]> = new Map();
   private requestQueue: RequestQueue;
   private logger: pino.Logger;
+  private objectCache: LRUCache;
+  private heightCache: Map<string, number> = new Map();
+  private chainStateCache: ChainState | null = null;
 
   constructor(logger: pino.Logger, db?: Level) {
     this.db = db || new Level(`${DEFAULT_DB_PATH}/objects`, { valueEncoding: "json" });
     this.logger = logger;
     this.requestQueue = new RequestQueue(logger);
+    this.objectCache = new LRUCache(10000);
   }
   async getBlockHeight(blockId: string): Promise<number | null> {
+    const cached = this.heightCache.get(blockId);
+    if (cached !== undefined) return cached === -1 ? null : cached;
+
     try {
       const h = await this.db.get(`height:${blockId}`);
       const result = parseInt(h, 10);
       if (isNaN(result)) {
         this.logger.warn(`Invalid height value for block ${blockId}: ${h}`);
+        this.heightCache.set(blockId, -1);
         return null;
       }
+      this.heightCache.set(blockId, result);
       return result;
     } catch (err: any) {
-      if (err.notFound) return null;
+      if (err.notFound) {
+        this.heightCache.set(blockId, -1);
+        return null;
+      }
       throw err;
     }
   }
@@ -59,34 +73,40 @@ class ObjectManager implements ObjectManagerInterface {
     batch.put("meta:tip", blockId);
     batch.put("meta:height", height.toString());
     await batch.write();
+    this.chainStateCache = { tip: blockId, height };
   }
   async getChainState(): Promise<ChainState> {
-    // Use allSettled to prevent a single 'notFound' from rejecting the whole operation
+    if (this.chainStateCache) return this.chainStateCache;
+
     const [tipResult, heightResult] = await Promise.allSettled([
       this.db.get("meta:tip"),
       this.db.get("meta:height"),
     ]);
 
-    // Extract values or use defaults if rejected (e.g., key not found)
     const tipId = tipResult.status === "fulfilled" ? (tipResult.value as string) : "";
-
     const height =
       heightResult.status === "fulfilled" ? parseInt(heightResult.value as string, 10) : -1;
 
-    return {
+    this.chainStateCache = {
       tip: tipId || "",
       height: isNaN(height) ? -1 : height,
     };
+    return this.chainStateCache;
   }
   async get(id: string): Promise<ObjectData> {
+    if (this.objectCache.has(id)) {
+      return this.objectCache.get(id) as ObjectData;
+    }
     const object = await this.db.get(id);
     if (object === undefined) {
       throw new Error(`Object ${id} not found`);
     }
-    return object as unknown as ObjectData;
+    const obj = object as unknown as ObjectData;
+    this.objectCache.put(id, obj);
+    return obj;
   }
 
-  private async resolvePendingFinds(objectId: string, object: ObjectData) {
+  resolvePending(objectId: string, object: ObjectData) {
     const waiters = this.pendingFinds.get(objectId);
     if (waiters) {
       for (const waiter of waiters) {
@@ -105,9 +125,11 @@ class ObjectManager implements ObjectManagerInterface {
     batch.put(objectId, object as any);
     if (height !== undefined && object.type === "block") {
       batch.put(`height:${objectId}`, height.toString());
+      this.heightCache.set(objectId, height);
     }
     await batch.write();
-    this.resolvePendingFinds(objectId, object);
+    this.objectCache.put(objectId, object);
+    this.resolvePending(objectId, object);
 
     return objectId;
   }
@@ -131,6 +153,7 @@ class ObjectManager implements ObjectManagerInterface {
   }
 
   async exists(id: string): Promise<boolean> {
+    if (this.objectCache.has(id)) return true;
     return await this.db.has(id);
   }
 

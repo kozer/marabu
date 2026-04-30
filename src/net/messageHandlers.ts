@@ -156,7 +156,14 @@ export const chainTipHandler = async (
   connection: Connection,
   managers: ManagerSet,
 ) => {
-  connection.log.error("start syncing to new tip since it is higher than current tip");
+  if (managers.block.getTip() === message.blockid) {
+    return;
+  }
+
+  try {
+    await managers.object.get(message.blockid);
+    return; // We already have it, no need to process it again
+  } catch (e) {}
   await managers.block.handleIncoming(message.blockid, connection.id);
 };
 
