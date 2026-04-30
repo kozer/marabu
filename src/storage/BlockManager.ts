@@ -227,7 +227,6 @@ class BlockManager implements BlockManagerInterface {
 
       let currentNewBlock = block; // The block passed into the function
       let currentOldBlock = null;
-      let commonAccestor = null;
       const abandonedTxs = [];
       this.logger.error(
         `Reorging to new chain. Old tip: ${oldTip} at height ${oldHeight}, new tip: ${blockId} at height ${result.height}`,
@@ -263,7 +262,6 @@ class BlockManager implements BlockManagerInterface {
           this.logger.info(
             `Common ancestor found at block ${currentOldBlock.previd} at height ${currentOldHeight - 1}`,
           );
-          commonAccestor = currentOldBlock.previd!;
           break;
         }
 

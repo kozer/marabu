@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll, afterAll, afterEach } from "bun:test";
+import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { Socket } from "net";
 import { startNode, type NodeHandle } from "../index";
 import { ErrorCode, GENESIS_BLOCK } from "@/protocol/types";

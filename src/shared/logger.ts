@@ -2,7 +2,7 @@ import pino from "pino";
 
 const logger = pino(
   {
-    enabled: !!process.env.NOLOG,
+    enabled: !process.env.NOLOG,
     level: process.env.LOG_LEVEL || "info",
   },
   pino.multistream([

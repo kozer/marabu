@@ -41,7 +41,7 @@ export class TransactionManager {
     for (const tx of txs) {
       this.mempoolTxs.set(this.objectManager.id(tx), tx);
     }
-    this.logger.info(
+    this.logger.trace(
       `Initialized mempool with transactions: ${[...this.mempoolTxs.keys()].join(", ")}, mempool state has ${this.mempoolState.size} UTXOs`,
     );
   }
@@ -65,7 +65,7 @@ export class TransactionManager {
   }
   async reconcileMempool(state: UtxoSnapshot, blockTxs: TransactionMessage[]): Promise<void> {
     const newMempoolState = new Map(state);
-    this.logger.info(
+    this.logger.trace(
       `Old mempool transactions: ${[...this.mempoolTxs.entries()].join(", ")}, new mempool state has ${newMempoolState.size} UTXOs`,
     );
     const txs = [];
@@ -100,7 +100,7 @@ export class TransactionManager {
       }
     }
     this.mempoolState = newMempoolState;
-    this.logger.info(`Reconciled mempool transactions: ${[...this.mempoolTxs.keys()].join(", ")}`);
+    this.logger.trace(`Reconciled mempool transactions: ${[...this.mempoolTxs.keys()].join(", ")}`);
   }
 
   async handleIncoming(tx: TransactionMessage, connection: Connection): Promise<void> {
@@ -118,7 +118,7 @@ export class TransactionManager {
       // at which point the tx will become valid and added to the mempool.
       await this.checkAndAddToMempool(tx);
     }
-    this.logger.info(`Current mempool transactions: ${[...this.mempoolTxs.keys()].join(", ")}`);
+    this.logger.trace(`Current mempool transactions: ${[...this.mempoolTxs.keys()].join(", ")}`);
     this.peerManager.broadcast(
       {
         type: MessageType.IHAVEOBJECT,

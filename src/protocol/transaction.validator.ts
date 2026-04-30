@@ -9,7 +9,6 @@ import {
   type RegularTxAmounts,
   type ResolvedInput,
   type TransactionMessage,
-  type UtxoSnapshot,
 } from "./types";
 import type { ObjectManagerInterface } from "@/storage/objectManager";
 

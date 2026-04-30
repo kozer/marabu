@@ -16,7 +16,6 @@ export function handleInboundConnection(socket: Socket, ctx: ConnectedPeerContex
   ctx.logger.info(
     `Inbound: ${ctx.peerManager.inboundConnectionCount}. Total: ${ctx.peerManager.totalConnections}/${MAX_PEERS}`,
   );
-  ctx.logger.info(`A new connection has been established from ${ctx.id}.`);
 }
 
 export function handleOutboundConnection(ctx: PeerContext) {
@@ -32,7 +31,7 @@ export function handleOutboundConnection(ctx: PeerContext) {
     return;
   }
   const peers = candidates.sort(() => Math.random() - 0.5).slice(0, peersToConnect);
-  ctx.logger.info(
+  ctx.logger.trace(
     `Discovery loop: Attempting to connect to ${peers.length} peer(s). Outbound: ${ctx.peerManager.outboundConnectionCount}/${OUTBOUND_PEER_LIMIT}, Total: ${ctx.peerManager.totalConnections}/${MAX_PEERS}`,
   );
 
@@ -54,7 +53,7 @@ export function handleOutboundConnection(ctx: PeerContext) {
     };
 
     client.connect(parsed.port, parsed.dialHost, () => {
-      ctx.logger.info(`Successfully connected to ${cleanPeer}!`);
+      ctx.logger.trace(`Successfully connected to ${cleanPeer}!`);
       client.setTimeout(0);
     });
     new PeerConnection(client, connectedContext, ConnectionDirection.OUTBOUND);

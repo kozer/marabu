@@ -1,5 +1,5 @@
 import ProtocolError from "@/protocol/error";
-import { type PeersMessage, type Connection, ErrorCode } from "@/protocol/types";
+import { type PeersMessage, ErrorCode } from "@/protocol/types";
 import { parsePeerAddress } from "@/shared/utils";
 export function validatePeers(message: PeersMessage): boolean {
   for (const peer of message.peers) {

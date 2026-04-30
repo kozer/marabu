@@ -1,6 +1,6 @@
 import canonicalize from "canonicalize";
 import { SEPARATOR } from "@/shared/constants";
-import { ErrorCode, MessageType, type Connection } from "@/protocol/types";
+import { ErrorCode, MessageType } from "@/protocol/types";
 
 class ProtocolError extends Error {
   // Hardcoded to "error" so the peer knows this is an error message

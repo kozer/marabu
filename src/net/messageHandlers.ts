@@ -116,8 +116,6 @@ export const getObjectHandler = async (
   connection: Connection,
   managers: ManagerSet,
 ) => {
-  console.log(`Received GET_OBJECT for ${message.objectid} from ${connection.id}`);
-  console.log(`Requested object ${message.objectid}`);
   try {
     const obj = await managers.object.get(message.objectid);
     if (obj) {
