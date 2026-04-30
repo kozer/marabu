@@ -16,7 +16,6 @@ import ProtocolError, { MultiProtocolError } from "@/protocol/error";
 import type { PeerManager } from "@/peers/peerManager";
 import type pino from "pino";
 import {
-  applyTransactionsToUtxoSet,
   applyTransactionToUtxoSet,
   checkCoinbaseFormat,
   checkForCoinbaseTxsInBlock,
@@ -445,18 +444,25 @@ class BlockManager implements BlockManagerInterface {
       this.logger.info(
         `Applying transactions to UTXO set for block ${this.objectManager.id(block)}. Number of transactions: ${blockTxs.length}`,
       );
-      const validatedTxs: TxEnriched[] = await applyTransactionsToUtxoSet(
-        blockTxs,
-        parentUtxoSet,
-        this.objectManager,
-        this.transactionManager,
-      );
 
+      const validatedTxs: TxEnriched[] = [];
+      for (const tx of blockTxs) {
+        if (isCoinbaseCandidate(tx)) {
+          // We have already validated the coinbase transaction separately, so we can skip it here.
+          continue;
+        }
+        // Transactions are already validated standalone before being stored in the DB.
+        // We only need to resolve inputs for UTXO checks and fee computation.
+        validatedTxs.push(await this.transactionManager.resolveTxDetails(tx));
+      }
       //We have verified the transactions in the block, so now we can use them to verify the law of conservation for the coinbase transaction if it exists.
       if (coinbaseTx) {
         validateHeightOfCoinbaseTx(coinbaseTx, parentHeight! + 1);
         verifyLawOfConservationForCoinbaseTx(coinbaseTx!, validatedTxs);
-        applyTransactionToUtxoSet(coinbaseTx, parentUtxoSet, this.objectManager);
+      }
+
+      for (const tx of blockTxs) {
+        applyTransactionToUtxoSet(tx, parentUtxoSet, this.objectManager);
       }
 
       this.logger.info(

@@ -10,7 +10,6 @@ import {
   type TxEnriched,
   type UtxoSnapshot,
 } from "./types";
-import type { TransactionManager } from "@/storage/TransactionManager";
 
 export function validateGenesisBlock(
   block: BlockMessage,
@@ -133,28 +132,6 @@ export function ensureInputsPresentInUtxoSet(
   }
 }
 
-export async function applyTransactionsToUtxoSet(
-  txs: TransactionMessage[],
-  utxoSet: UtxoSnapshot,
-  objectManager: ObjectManagerInterface,
-  transactionManager: TransactionManager,
-): Promise<TxEnriched[]> {
-  const validatedTxs: TxEnriched[] = [];
-  for (const tx of txs) {
-    if (isCoinbaseCandidate(tx)) {
-      // We have already validated the coinbase transaction separately, so we can skip it here.
-      continue;
-    }
-    // Transactions are already validated standalone before being stored in the DB.
-    // We only need to resolve inputs for UTXO checks and fee computation.
-    const result = await transactionManager.resolveTxDetails(tx);
-    ensureInputsPresentInUtxoSet(tx.inputs!, utxoSet);
-    applyTransactionToUtxoSet(tx, utxoSet, objectManager);
-    validatedTxs.push(result);
-  }
-  return validatedTxs;
-}
-
 export function validateBlockTimestamp(blockCreated: number, parentCreated: number): boolean {
   if (blockCreated <= parentCreated || blockCreated > Math.floor(Date.now() / 1000)) {
     throw new ProtocolError(
@@ -196,6 +173,7 @@ export function applyTransactionToUtxoSet(
 ): void {
   // Remove spent outputs from UTXO set. We check for inputs (?? []) to cover coinbase txs as well.
   // Coinbase transactions have no inputs, and are not being spend by current block, so we don't need to do anything to the UTXO set for them.
+  ensureInputsPresentInUtxoSet(tx.inputs ?? [], utxoSet);
   for (const input of tx.inputs ?? []) {
     const key = `${input.outpoint.txid}:${input.outpoint.index}` as const;
     utxoSet.delete(key);

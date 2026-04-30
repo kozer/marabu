@@ -42,6 +42,7 @@ const logger = {
   error: (..._args: any[]) => {},
   debug: (..._args: any[]) => {},
   warn: (..._args: any[]) => {},
+  trace: (..._args: any[]) => {},
 } as unknown as pino.Logger;
 
 function createFakeBlockManager(args: {

@@ -23,7 +23,7 @@ export const MAX_PEERS = 1000;
 export const OUTBOUND_PEER_LIMIT = 200;
 
 export const DEFAULT_DB_PATH = "./marabudb";
-export const FIND_TIMEOUT_MS = 30000;
+export const FIND_TIMEOUT_MS = 10_000;
 export const QUEUE_DELAY_PER_BATCH_MS = 100;
 export const REQUEST_BATCH_SIZE = 10;
 
@@ -33,4 +33,4 @@ export const STALE_PEER_MAX_AGE_TTL = 2 * 24 * 60 * 60 * 1000;
 export const INVALID_MESSAGE_THRESHOLD = 100;
 export const INVALID_MESSAGE_BLACKLIST_TTL = 60 * 1000;
 
-export const CHAIN_TIP_NUMBER_OF_CONNECTED_PEERS = 5;
+export const CHAIN_TIP_NUMBER_OF_CONNECTED_PEERS = 10;
