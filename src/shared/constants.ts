@@ -34,3 +34,5 @@ export const INVALID_MESSAGE_THRESHOLD = 100;
 export const INVALID_MESSAGE_BLACKLIST_TTL = 60 * 1000;
 
 export const CHAIN_TIP_NUMBER_OF_CONNECTED_PEERS = 10;
+export const agent = "Subzero client/0.10.0";
+export const MINE_CPU_RATIO = 0.5;

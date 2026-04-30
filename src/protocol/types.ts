@@ -285,3 +285,20 @@ export type ChainState = {
   tip: string;
   height: number;
 };
+
+export const MINER_EVENTS = {
+  RESTART_MINE: "RESTART_MINE",
+  STOP: "STOP",
+  ON_BLOCK_MINED: "ON_BLOCK_MINED",
+};
+
+export type WorkerMessage = {
+  type: keyof typeof MINER_EVENTS;
+  data?: any;
+};
+
+export type MinerController = {
+  restartMine: (txs: string[], state: ChainState) => void;
+  stop: () => void;
+  onBlockMined: (callback: (block: BlockMessage, coinbaseTx: TransactionMessage) => void) => void;
+};

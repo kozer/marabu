@@ -93,13 +93,13 @@ export class PeerConnection implements Connection {
     this.send({
       type: MessageType.HELLO,
       version: "0.10.0",
-      agent: "Subzero node client",
+      agent,
     });
 
     this.send({
       type: MessageType.GET_PEERS,
     });
-    this.log.error(
+    this.log.trace(
       `Outbound connections: ${this._ctx.peerManager.outboundConnectionCount}, Inbound connections: ${this._ctx.peerManager.inboundConnectionCount}`,
     );
     if (this._ctx.peerManager.totalConnections % CHAIN_TIP_NUMBER_OF_CONNECTED_PEERS === 0) {

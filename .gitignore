@@ -38,3 +38,4 @@ e2e_testdb*
 for_later.txt
 scripts/*
 logs
+*.key
