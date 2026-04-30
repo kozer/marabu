@@ -2,7 +2,7 @@ import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { startNode, type NodeHandle } from "../index";
 import { ErrorCode, GENESIS_BLOCK } from "@/protocol/types";
 import {
-  P6_GLOBAL_STORE,
+  P5_GLOBAL_STORE,
   TC1A,
   TC1B,
   CHAIN,
@@ -11,16 +11,16 @@ import {
   TC3_INVALID_TX,
   TC3_COINBASE_TX,
   TC3_REORG,
-} from "./fixtures/pset6";
+} from "./fixtures/pset5";
 import { cleanDb, collectMessages, connect, oid, send, wait } from "./test_helpers";
 
-const E2E_DB_PATH = "./e2e_testdb_pset6";
-const E2E_PEERS_FILE = "./e2e_peers_pset6.json";
-const GLOBAL_STORE = new Map<string, any>(P6_GLOBAL_STORE);
+const E2E_DB_PATH = "./e2e_testdb_pset5";
+const E2E_PEERS_FILE = "./e2e_peers_pset5.json";
+const GLOBAL_STORE = new Map<string, any>(P5_GLOBAL_STORE);
 
 let node: NodeHandle;
 
-describe("pset6", () => {
+describe("pset5", () => {
   beforeAll(async () => {
     cleanDb(E2E_DB_PATH, E2E_PEERS_FILE);
     node = await startNode({

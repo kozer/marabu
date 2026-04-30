@@ -103,10 +103,10 @@ class BlockManager implements BlockManagerInterface {
       );
       return result;
     } catch (e) {
-      // Resolve findBlock() waiters with null — fail immediately
-      // instead of timing out. Parents that failed validation should
-      // not be used as valid chain predecessors.
-      this.objectManager.resolvePending(blockId, null as any);
+      this.logger.error(
+        `Validation failed for block ${blockId} from connection ${connectionId}: ${(e as Error).message}`,
+      );
+      this.objectManager.rejectPending(blockId, e as Error);
       throw e;
     }
   }
@@ -142,8 +142,15 @@ class BlockManager implements BlockManagerInterface {
         throw new Error(`Object ${blockId} found but is not a block (type: ${result?.type})`);
       }
     } catch (err) {
-      this.logger.error(`Error finding block ${blockId}: ${(err as Error).message}`);
-      throw new ProtocolError(ErrorCode.UNFINDABLE_OBJECT, `Block ${blockId} not found.`);
+      const errors: ProtocolError[] = [];
+      if (err instanceof ProtocolError) {
+        errors.push(err);
+      }
+      if (err instanceof MultiProtocolError) {
+        errors.push(...err.errors);
+      }
+      errors.push(new ProtocolError(ErrorCode.UNFINDABLE_OBJECT, `Block ${blockId} not found.`));
+      throw new MultiProtocolError(errors);
     }
   }
 

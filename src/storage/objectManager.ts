@@ -7,9 +7,12 @@ import { DEFAULT_DB_PATH, FIND_TIMEOUT_MS } from "@/shared/constants";
 import LRUCache from "@/shared/lruCache";
 import RequestQueue from "./requestQueue";
 import type pino from "pino";
+import ProtocolError from "@/protocol/error";
+import { MultiProtocolError } from "@/protocol/error";
 
 export type PendingWaiter = {
   resolve: (value: ObjectData) => void;
+  reject: (error: ProtocolError | MultiProtocolError) => void;
   timeoutId: ReturnType<typeof setTimeout>;
 };
 
@@ -28,6 +31,7 @@ export interface ObjectManagerInterface {
   getBlockHeight(blockId: string): Promise<number | null>;
   delete(obj: ObjectData, height?: number): Promise<void>;
   resolvePending(objectId: string, object: ObjectData): void;
+  rejectPending(objectId: string, error: Error): void;
   close(): Promise<void>;
 }
 
@@ -106,6 +110,31 @@ class ObjectManager implements ObjectManagerInterface {
     return obj;
   }
 
+  rejectPending(objectId: string, error: ProtocolError | MultiProtocolError): void {
+    const waiters = this.pendingFinds.get(objectId);
+    if (waiters) {
+      for (const waiter of waiters) {
+        clearTimeout(waiter.timeoutId);
+        this.logger.info(`Resolving pending find for object ${objectId}`);
+        let newError = null;
+        if (error instanceof MultiProtocolError) {
+          newError = new MultiProtocolError(
+            error.errors.reduce((acc, err) => {
+              if (!acc.some((e) => e.name === err.name)) {
+                acc.push(err);
+              }
+              return acc;
+            }, [] as ProtocolError[]),
+          );
+        } else {
+          newError = new MultiProtocolError([error]);
+        }
+        waiter.reject(newError);
+      }
+      this.pendingFinds.delete(objectId);
+    }
+  }
+
   resolvePending(objectId: string, object: ObjectData) {
     const waiters = this.pendingFinds.get(objectId);
     if (waiters) {
@@ -177,6 +206,9 @@ class ObjectManager implements ObjectManagerInterface {
       waiter = {
         resolve: (value) => {
           resolve(value);
+        },
+        reject: (error) => {
+          reject(error);
         },
         timeoutId: setTimeout(() => {
           const current = this.pendingFinds.get(objectId) ?? [];

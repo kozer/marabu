@@ -102,13 +102,20 @@ export const CHAIN = await (async () => {
   });
 
   return {
-    CB1: cb1,           CB1_ID: cb1Id,
-    B1: b1,             B1_ID: oid(b1),
-    TX_EXTRA: txExtra,  TX_EXTRA_ID: txExtraId,
-    CB2: cb2,           CB2_ID: cb2Id,
-    B2_EXTENDED: b2Extended,  B2_EXTENDED_ID: oid(b2Extended),
-    CB3: cb3,           CB3_ID: cb3Id,
-    B3: b3,             B3_ID: oid(b3),
+    CB1: cb1,
+    CB1_ID: cb1Id,
+    B1: b1,
+    B1_ID: oid(b1),
+    TX_EXTRA: txExtra,
+    TX_EXTRA_ID: txExtraId,
+    CB2: cb2,
+    CB2_ID: cb2Id,
+    B2_EXTENDED: b2Extended,
+    B2_EXTENDED_ID: oid(b2Extended),
+    CB3: cb3,
+    CB3_ID: cb3Id,
+    B3: b3,
+    B3_ID: oid(b3),
   };
 })();
 
@@ -211,18 +218,24 @@ export const TC3_REORG = await (async () => {
   });
 
   return {
-    CB2_ALT: cb2Alt,    CB2_ALT_ID: cb2AltId,
-    B2_ALT: b2Alt,      B2_ALT_ID: oid(b2Alt),
-    CB3_ALT: cb3Alt,    CB3_ALT_ID: cb3AltId,
-    B3_ALT: b3Alt,      B3_ALT_ID: oid(b3Alt),
-    CB4_ALT: cb4Alt,    CB4_ALT_ID: cb4AltId,
-    B4_ALT: b4Alt,      B4_ALT_ID: oid(b4Alt),
+    CB2_ALT: cb2Alt,
+    CB2_ALT_ID: cb2AltId,
+    B2_ALT: b2Alt,
+    B2_ALT_ID: oid(b2Alt),
+    CB3_ALT: cb3Alt,
+    CB3_ALT_ID: cb3AltId,
+    B3_ALT: b3Alt,
+    B3_ALT_ID: oid(b3Alt),
+    CB4_ALT: cb4Alt,
+    CB4_ALT_ID: cb4AltId,
+    B4_ALT: b4Alt,
+    B4_ALT_ID: oid(b4Alt),
   };
 })();
 
 // ── Global object store (serves getobject replies during tests) ──
 
-export const P6_GLOBAL_STORE = new Map<string, unknown>([
+export const P5_GLOBAL_STORE = new Map<string, unknown>([
   // TC1A
   [TC1A.CB_SETUP_ID, TC1A.CB_SETUP],
   // TC1B

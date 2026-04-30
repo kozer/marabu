@@ -514,6 +514,60 @@ export const TC3 = (() => {
   };
 })();
 
+//  Test 8 – 3-block cascade (bad timestamp at root)
+// Chain: genesis → A → B → C
+// A has invalid timestamp (< genesis).  Send C, node fetches B, then A.
+// A fails → cascade: A gets INVALID_BLOCK_TIMESTAMP.
+// B, C get INVALID_BLOCK_TIMESTAMP + UNFINDABLE_OBJECT.
+export const TC8 = (() => {
+  const badCreated = 1671185419; // < genesis 1771159355
+
+  const cb1 = coinbase(1, PK, BLOCK_REWARD);
+  const cb1Id = oid(cb1);
+
+  const blockA = buildBlock({
+    created: badCreated,
+    miner: "grader",
+    nonce: "0".repeat(61) + "c01",
+    note: "Cascade block A (bad timestamp)",
+    previd: GENESIS_BLOCK_ID,
+    txids: [cb1Id],
+  });
+
+  const cb2 = coinbase(2, PK, BLOCK_REWARD);
+  const cb2Id = oid(cb2);
+
+  const blockB = buildBlock({
+    created: badCreated + 1,
+    miner: "grader",
+    nonce: "0".repeat(61) + "c02",
+    note: "Cascade block B",
+    previd: oid(blockA),
+    txids: [cb2Id],
+  });
+
+  const cb3 = coinbase(3, PK, BLOCK_REWARD);
+  const cb3Id = oid(cb3);
+
+  const blockC = buildBlock({
+    created: badCreated + 2,
+    miner: "grader",
+    nonce: "0".repeat(61) + "c03",
+    note: "Cascade block C",
+    previd: oid(blockB),
+    txids: [cb3Id],
+  });
+
+  return {
+    CB1: cb1,       CB1_ID: cb1Id,
+    CB2: cb2,       CB2_ID: cb2Id,
+    CB3: cb3,       CB3_ID: cb3Id,
+    BLOCK_A: blockA, BLOCK_A_ID: oid(blockA),
+    BLOCK_B: blockB, BLOCK_B_ID: oid(blockB),
+    BLOCK_C: blockC, BLOCK_C_ID: oid(blockC),
+  };
+})();
+
 export const P4_GLOBAL_STORE = new Map<string, unknown>([
   // TC1E
   [TC1E.CB_ID, TC1E.CB],
@@ -557,4 +611,12 @@ export const P4_GLOBAL_STORE = new Map<string, unknown>([
 
   // TC7 – Longest chain (30 valid blocks)
   ...Array.from(TC7.MAP),
+
+  // TC8 – 3-block cascade (bad timestamp at root)
+  [TC8.CB1_ID, TC8.CB1],
+  [TC8.CB2_ID, TC8.CB2],
+  [TC8.CB3_ID, TC8.CB3],
+  [TC8.BLOCK_A_ID, TC8.BLOCK_A],
+  [TC8.BLOCK_B_ID, TC8.BLOCK_B],
+  [TC8.BLOCK_C_ID, TC8.BLOCK_C],
 ]);

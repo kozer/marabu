@@ -15,6 +15,7 @@ import {
   TC6A,
   TC6B,
   TC7,
+  TC8,
 } from "./fixtures/pset4";
 import { cleanDb, collectMessages, connect, oid, send, wait } from "./test_helpers";
 
@@ -61,14 +62,13 @@ describe("pset4", () => {
 
     send(sock1, { type: "object", object: TC1A.BLOCK });
 
-    const errUntil = (m: any) => m.type === "error" && m.name === ErrorCode.UNFINDABLE_OBJECT;
     const [msgs1, msgs2] = await Promise.all([
-      collectMessages(sock1, 32000, undefined, errUntil),
+      collectMessages(sock1, 32000),
       collectMessages(sock2, 32000),
     ]);
 
-    const errorMsg = msgs1.find(errUntil);
-    expect(errorMsg).toBeDefined();
+    const errorNames = msgs1.filter((m: any) => m.type === "error").map((m: any) => m.name);
+    expect(errorNames).toContain(ErrorCode.UNFINDABLE_OBJECT);
 
     const gossipMsg = msgs2.find(
       (m: any) => m.type === "ihaveobject" && m.objectid === TC1A.BLOCK_ID,
@@ -90,14 +90,13 @@ describe("pset4", () => {
 
     send(sock1, { type: "object", object: TC1B.BLOCK });
 
-    const errUntil = (m: any) => m.type === "error" && m.name === ErrorCode.INVALID_BLOCK_TIMESTAMP;
     const [msgs1, msgs2] = await Promise.all([
-      collectMessages(sock1, 3000, undefined, errUntil),
+      collectMessages(sock1, 3000),
       collectMessages(sock2, 3000),
     ]);
 
-    const errorMsg = msgs1.find(errUntil);
-    expect(errorMsg).toBeDefined();
+    const errorNames = msgs1.filter((m: any) => m.type === "error").map((m: any) => m.name);
+    expect(errorNames).toContain(ErrorCode.INVALID_BLOCK_TIMESTAMP);
 
     const gossipMsg = msgs2.find(
       (m: any) => m.type === "ihaveobject" && m.objectid === TC1B.BLOCK_ID,
@@ -119,14 +118,13 @@ describe("pset4", () => {
 
     send(sock1, { type: "object", object: TC1C.BLOCK });
 
-    const errUntil = (m: any) => m.type === "error" && m.name === ErrorCode.INVALID_BLOCK_TIMESTAMP;
     const [msgs1, msgs2] = await Promise.all([
-      collectMessages(sock1, 3000, undefined, errUntil),
+      collectMessages(sock1, 3000),
       collectMessages(sock2, 3000),
     ]);
 
-    const errorMsg = msgs1.find(errUntil);
-    expect(errorMsg).toBeDefined();
+    const errorNames = msgs1.filter((m: any) => m.type === "error").map((m: any) => m.name);
+    expect(errorNames).toContain(ErrorCode.INVALID_BLOCK_TIMESTAMP);
 
     const gossipMsg = msgs2.find(
       (m: any) => m.type === "ihaveobject" && m.objectid === TC1C.BLOCK_ID,
@@ -160,14 +158,13 @@ describe("pset4", () => {
 
     send(sock1, { type: "object", object: fakeGenesis });
 
-    const errUntil = (m: any) => m.type === "error" && m.name === ErrorCode.INVALID_GENESIS;
     const [msgs1, msgs2] = await Promise.all([
-      collectMessages(sock1, 3000, undefined, errUntil),
+      collectMessages(sock1, 3000),
       collectMessages(sock2, 3000),
     ]);
 
-    const errorMsg = msgs1.find(errUntil);
-    expect(errorMsg).toBeDefined();
+    const errorNames = msgs1.filter((m: any) => m.type === "error").map((m: any) => m.name);
+    expect(errorNames).toContain(ErrorCode.INVALID_GENESIS);
 
     const gossipMsg = msgs2.find(
       (m: any) => m.type === "ihaveobject" && m.objectid === fakeGenesisId,
@@ -189,14 +186,13 @@ describe("pset4", () => {
 
     send(sock1, { type: "object", object: TC1E.BLOCK });
 
-    const errUntil = (m: any) => m.type === "error" && m.name === ErrorCode.INVALID_BLOCK_COINBASE;
     const [msgs1, msgs2] = await Promise.all([
-      collectMessages(sock1, 5000, GLOBAL_STORE, errUntil),
+      collectMessages(sock1, 5000, GLOBAL_STORE),
       collectMessages(sock2, 5000, GLOBAL_STORE),
     ]);
 
-    const errorMsg = msgs1.find(errUntil);
-    expect(errorMsg).toBeDefined();
+    const errorNames = msgs1.filter((m: any) => m.type === "error").map((m: any) => m.name);
+    expect(errorNames).toContain(ErrorCode.INVALID_BLOCK_COINBASE);
 
     const gossipMsg = msgs2.find(
       (m: any) => m.type === "ihaveobject" && m.objectid === TC1E.BLOCK_ID,
@@ -297,14 +293,18 @@ describe("pset4", () => {
 
     send(sock1, { type: "object", object: TC4.N3 });
 
-    const errUntil = (m: any) => m.type === "error" && m.name === ErrorCode.INVALID_BLOCK_TIMESTAMP;
+    // Collect ALL messages — with cascade, sock1 receives:
+    // N1 → INVALID_BLOCK_TIMESTAMP
+    // N2 → INVALID_BLOCK_TIMESTAMP + UNFINDABLE_OBJECT
+    // N3 → INVALID_BLOCK_TIMESTAMP + UNFINDABLE_OBJECT
     const [msgs1, msgs2] = await Promise.all([
-      collectMessages(sock1, 10000, GLOBAL_STORE, errUntil),
+      collectMessages(sock1, 10000, GLOBAL_STORE),
       collectMessages(sock2, 10000, GLOBAL_STORE),
     ]);
 
-    const errors = msgs1.filter(errUntil);
-    expect(errors.length).toBeGreaterThanOrEqual(1);
+    const errorNames = msgs1.filter((m: any) => m.type === "error").map((m: any) => m.name);
+    expect(errorNames).toContain(ErrorCode.INVALID_BLOCK_TIMESTAMP);
+    expect(errorNames).toContain(ErrorCode.UNFINDABLE_OBJECT);
 
     for (const id of [TC4.N1_ID, TC4.N2_ID, TC4.N3_ID]) {
       const gossipMsg = msgs2.find((m: any) => m.type === "ihaveobject" && m.objectid === id);
@@ -326,14 +326,13 @@ describe("pset4", () => {
 
     send(sock1, { type: "object", object: TC5.BLOCK });
 
-    const errUntil = (m: any) => m.type === "error" && m.name === ErrorCode.UNFINDABLE_OBJECT;
     const [msgs1, msgs2] = await Promise.all([
-      collectMessages(sock1, 32000, undefined, errUntil),
+      collectMessages(sock1, 32000),
       collectMessages(sock2, 32000),
     ]);
 
-    const errorMsg = msgs1.find(errUntil);
-    expect(errorMsg).toBeDefined();
+    const errorNames = msgs1.filter((m: any) => m.type === "error").map((m: any) => m.name);
+    expect(errorNames).toContain(ErrorCode.UNFINDABLE_OBJECT);
 
     const gossipMsg = msgs2.find(
       (m: any) => m.type === "ihaveobject" && m.objectid === TC5.BLOCK_ID,
@@ -355,18 +354,13 @@ describe("pset4", () => {
 
     send(sock1, { type: "object", object: TC6A.BLOCK });
 
-    const errUntil = (m: any) =>
-      m.type === "error" &&
-      (m.name === ErrorCode.UNFINDABLE_OBJECT ||
-        m.name === ErrorCode.INVALID_BLOCK_POW ||
-        m.name === ErrorCode.INVALID_FORMAT);
     const [msgs1, msgs2] = await Promise.all([
-      collectMessages(sock1, 32000, undefined, errUntil),
+      collectMessages(sock1, 32000),
       collectMessages(sock2, 32000),
     ]);
 
-    const errorMsg = msgs1.find(errUntil);
-    expect(errorMsg).toBeDefined();
+    const errorNames = msgs1.filter((m: any) => m.type === "error").map((m: any) => m.name);
+    expect(errorNames).toContain(ErrorCode.UNFINDABLE_OBJECT);
 
     const gossipMsg = msgs2.find(
       (m: any) => m.type === "ihaveobject" && m.objectid === TC6A.BLOCK_ID,
@@ -386,9 +380,8 @@ describe("pset4", () => {
     send(sock2, { agent: "Grader 2", type: "hello", version: "0.10.0" });
     await collectMessages(sock2, 500);
 
-    const errUntil = (m: any) => m.type === "error" && m.name === ErrorCode.UNFINDABLE_OBJECT;
     send(sock1, { type: "object", object: TC6A.BLOCK });
-    await collectMessages(sock1, 32000, undefined, errUntil);
+    await collectMessages(sock1, 32000);
 
     send(sock1, { type: "object", object: TC6B.SECOND });
     const msgs2 = await collectMessages(sock2, 5000);
@@ -437,5 +430,51 @@ describe("pset4", () => {
     }
     expect(walkLength).toBeGreaterThanOrEqual(30);
     sock.destroy();
+  }, 30_000);
+
+  // ── 8: 3-block cascade — root fails, errors propagate ─
+  // Chain: genesis → A → B → C
+  // A has invalid timestamp (< genesis).  Send C, node fetches B, then A.
+  // A fails → cascade: A gets INVALID_BLOCK_TIMESTAMP.
+  // B, C get INVALID_BLOCK_TIMESTAMP + UNFINDABLE_OBJECT.
+  test("8) 3-block cascade — errors propagate to all blocks", async () => {
+    const sock1 = await connect();
+    const sock2 = await connect();
+
+    await seedGenesis(sock1);
+    send(sock2, { agent: "Grader 2", type: "hello", version: "0.10.0" });
+    await collectMessages(sock2, 500);
+
+    // Send tip block C → triggers parent fetch for B then A.
+    send(sock1, { type: "object", object: TC8.BLOCK_C });
+
+    const cascadeStore = new Map<string, any>([
+      [TC8.CB1_ID, TC8.CB1],
+      [TC8.CB2_ID, TC8.CB2],
+      [TC8.CB3_ID, TC8.CB3],
+      [TC8.BLOCK_A_ID, TC8.BLOCK_A],
+      [TC8.BLOCK_B_ID, TC8.BLOCK_B],
+      [TC8.BLOCK_C_ID, TC8.BLOCK_C],
+    ]);
+
+    const [msgs1, msgs2] = await Promise.all([
+      collectMessages(sock1, 15000, cascadeStore),
+      collectMessages(sock2, 15000, cascadeStore),
+    ]);
+
+    const errorNames = msgs1.filter((m: any) => m.type === "error").map((m: any) => m.name);
+    expect(errorNames).toContain(ErrorCode.INVALID_BLOCK_TIMESTAMP);
+    expect(errorNames).toContain(ErrorCode.UNFINDABLE_OBJECT);
+
+    // Grader 2 must NOT receive gossip for any of the 3 blocks.
+    for (const id of [TC8.BLOCK_A_ID, TC8.BLOCK_B_ID, TC8.BLOCK_C_ID]) {
+      const gossipMsg = msgs2.find(
+        (m: any) => m.type === "ihaveobject" && m.objectid === id,
+      );
+      expect(gossipMsg).toBeUndefined();
+    }
+
+    sock1.destroy();
+    sock2.destroy();
   }, 30_000);
 });
