@@ -4,7 +4,10 @@ import os from "os";
 import { MINER_EVENTS, type ChainState, type MinerController } from "./protocol/types";
 import { MINE_CPU_RATIO } from "./shared/constants";
 
-const workerPath = path.resolve(import.meta.dir, "miner.ts");
+const workerPath = path.resolve(
+  import.meta.dir,
+  import.meta.dir.endsWith("dist") ? "miner.js" : "miner.ts",
+);
 const totalCores = os.cpus().length;
 const threadCount = Math.max(1, Math.floor(totalCores * MINE_CPU_RATIO));
 const workers: Worker[] = [];
@@ -30,25 +33,36 @@ export const initMiner = async () => {
     return null;
   }
   for (let i = 0; i < threadCount; i++) {
-    workers.push(
-      new Worker(workerPath, {
-        workerData: {
-          pk,
-        },
-      }),
-    );
+    const worker = new Worker(workerPath, {
+      workerData: { pk },
+    });
+    worker.on("error", (err) => {
+      console.error(`Miner worker ${i} error:`, (err as Error).message);
+    });
+    worker.on("exit", (code) => {
+      if (code !== 0) console.error(`Miner worker ${i} exited with code ${code}`);
+    });
+    workers.push(worker);
   }
 
   const minerController = {
     stop: () => {
-      workers.forEach((w) => w.postMessage({ type: MINER_EVENTS.STOP }));
+      workers.forEach((w) => {
+        try {
+          w.postMessage({ type: MINER_EVENTS.STOP });
+        } catch {}
+      });
     },
     onBlockMined: (callback: (block: any, coinbaseTx: any) => void) => {
       workers.forEach((w) => {
         w.on("message", (msg) => {
           if (msg.type === MINER_EVENTS.ON_BLOCK_MINED) {
             // When one finds a block, tell the others to stop immediately
-            workers.forEach((other) => other.postMessage({ type: MINER_EVENTS.STOP }));
+            workers.forEach((other) => {
+              try {
+                other.postMessage({ type: MINER_EVENTS.STOP });
+              } catch {}
+            });
             callback(msg.payload.block, msg.payload.coinbaseTx);
           }
         });
@@ -56,10 +70,9 @@ export const initMiner = async () => {
     },
     restartMine: (txs: string[], state: ChainState) => {
       workers.forEach((w) => {
-        w.postMessage({
-          type: MINER_EVENTS.RESTART_MINE,
-          data: { txs, state },
-        });
+        try {
+          w.postMessage({ type: MINER_EVENTS.RESTART_MINE, data: { txs, state } });
+        } catch {}
       });
     },
   } as MinerController;
