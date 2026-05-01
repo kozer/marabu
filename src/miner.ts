@@ -8,7 +8,7 @@ import {
   type ChainState,
   BLOCK_REWARD,
 } from "./protocol/types";
-import { agent } from "./shared/constants";
+import { agent, MINE_YIELD_EVERY_MS } from "./shared/constants";
 import { hashObject } from "./shared/utils";
 import logger from "./shared/logger";
 
@@ -38,7 +38,7 @@ async function PoW({ txs, state }: { txs: string[]; state: ChainState }) {
   let nonce = BigInt(`0x${crypto.randomBytes(32).toString("hex")}`);
 
   while (isRunning) {
-    if (nonce % 10000n === 0n) {
+    if (nonce % BigInt(MINE_YIELD_EVERY_MS) === 0n) {
       await new Promise((resolve) => setImmediate(resolve));
     }
 
