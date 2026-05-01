@@ -10,6 +10,9 @@ import {
 } from "./protocol/types";
 import { agent, MINE_YIELD_EVERY_MS } from "./shared/constants";
 import { hashObject } from "./shared/utils";
+import { blake2s } from "@noble/hashes/blake2.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
+import canonicalize from "canonicalize";
 import logger from "./shared/logger";
 
 if (!parentPort) {
@@ -20,8 +23,30 @@ const port: MessagePort = parentPort;
 
 let isRunning = false;
 
-async function PoW({ txs, state }: { txs: string[]; state: ChainState }) {
+const NONCE_WIDTH = 64;
+const NONCE_PLACEHOLDER = "0".repeat(NONCE_WIDTH);
+
+function buildTemplate(
+  tip: string,
+  txids: string[],
+): { buf: Buffer; nonceOffset: number; created: number } {
   const created = Math.floor(Date.now() / 1000);
+  const block = {
+    type: ObjectType.BLOCK,
+    T: TARGET,
+    created,
+    miner: agent,
+    nonce: NONCE_PLACEHOLDER,
+    previd: tip,
+    txids,
+  };
+  const canonical = canonicalize(block)!;
+  const buf = Buffer.from(canonical, "utf8");
+  const nonceOffset = canonical.indexOf(NONCE_PLACEHOLDER);
+  return { buf, nonceOffset, created };
+}
+
+async function PoW({ txs, state }: { txs: string[]; state: ChainState }) {
   const height = state.height + 1;
 
   const coinbaseTx = {
@@ -36,26 +61,29 @@ async function PoW({ txs, state }: { txs: string[]; state: ChainState }) {
   );
 
   let nonce = BigInt(`0x${crypto.randomBytes(32).toString("hex")}`);
+  const { buf, nonceOffset, created } = buildTemplate(state.tip, txids);
 
   while (isRunning) {
     if (nonce % BigInt(MINE_YIELD_EVERY_MS) === 0n) {
-      await new Promise((resolve) => setImmediate(resolve));
+      await new Promise((resolve) => setTimeout(resolve, 0));
     }
 
-    const block = {
-      type: ObjectType.BLOCK,
-      T: TARGET,
-      created: nonce % 10000n === 0n ? Math.floor(Date.now() / 1000) : created,
-      miner: agent,
-      nonce: nonce.toString(16),
-      previd: state.tip,
-      txids,
-    };
+    const nonceHex = nonce.toString(16).padStart(NONCE_WIDTH, "0");
+    buf.write(nonceHex, nonceOffset, "utf8");
 
-    const hash = hashObject(block);
+    const hash = bytesToHex(blake2s(buf));
     if (hash < TARGET) {
+      const block = {
+        type: ObjectType.BLOCK,
+        T: TARGET,
+        created,
+        miner: agent,
+        nonce: nonceHex,
+        previd: state.tip,
+        txids,
+      };
       logger.error(
-        `====================== Mined block ${height} | nonce: ${nonce.toString(16).slice(0, 16)}... | hash: ${hash} ======================`,
+        `====================== Mined block ${height} | nonce: ${nonceHex.slice(0, 16)}... | hash: ${hash} ======================`,
       );
       port.postMessage({
         type: MINER_EVENTS.ON_BLOCK_MINED,

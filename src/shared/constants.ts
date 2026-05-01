@@ -39,8 +39,8 @@ export const REQUEST_MEMPOOL_AND_CHAINTIP_RATE_LIMIT_MS = 60 * 1000;
 
 export const ASK_FOR_MEMPOOL_AND_CHAINTIP_CONNECTED_PEERS_LIMIT = 5;
 export const agent = "Subzero client/0.10.0";
-export const MINE_CPU_RATIO = 0.5;
+export const MINE_CPU_RATIO = 0.7;
 export const MINER_ENABLED = process.env.MINER_ENABLED === "true";
 export const MINE_YIELD_EVERY_MS = process.env.YIELD_EVERY_MS
   ? Number(process.env.YIELD_EVERY_MS)
-  : 100;
+  : 1000;
