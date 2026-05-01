@@ -89,15 +89,14 @@ function createMockManagers(args?: {
       storeValidatedBlock: async () => {},
     },
     tx: args?.transactionManager ?? {
-      async handleIncoming(tx: any, connection: any) {
-        // Skip validation for valid transactions, throw for invalid
+      async handleIncoming(tx: any, connectionId?: string) {
         if (!tx.inputs || tx.inputs.length === 0) {
           throw new ProtocolError(ErrorCode.INVALID_FORMAT, "Missing inputs");
         }
         await objectManager.put(tx);
         peerManager.broadcast(
           { type: MessageType.IHAVEOBJECT, objectid: objectManager.id(tx) },
-          connection.id,
+          connectionId,
         );
       },
     },

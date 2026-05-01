@@ -1,10 +1,12 @@
 import {
   BOOTSTRAP_PEERS,
+  ASK_FOR_MEMPOOL_AND_CHAINTIP_CONNECTED_PEERS_LIMIT,
   INVALID_MESSAGE_BLACKLIST_TTL,
   INVALID_MESSAGE_THRESHOLD,
   INVALID_SELF_HOSTS,
   MAX_PEERS_FROM_MESSAGE,
   MAX_PEERS_PER_SOURCE,
+  REQUEST_MEMPOOL_AND_CHAINTIP_RATE_LIMIT_MS,
   SERVER_HOST,
   SERVER_PORT,
   STALE_PEER_MAX_AGE_TTL,
@@ -36,6 +38,7 @@ export class PeerManager {
   private readonly myNode = process.env.OVERRIDE_NODE || `${SERVER_HOST}:${SERVER_PORT}`;
   private readonly logger: any;
   private readonly connectionRegistry: ConnectionRegistry;
+  private requestMempoolAndChaintipWindowStart = Date.now();
 
   constructor(store: PeerStore, logger: any) {
     this.store = store;
@@ -43,6 +46,19 @@ export class PeerManager {
     this.penalties = new Map();
     this.logger = logger;
     this.connectionRegistry = new ConnectionRegistry(logger);
+  }
+
+  public shouldRequestMempoolAndChaintip(): boolean {
+    const now = Date.now();
+    if (
+      now - this.requestMempoolAndChaintipWindowStart >=
+        REQUEST_MEMPOOL_AND_CHAINTIP_RATE_LIMIT_MS &&
+      this.connectionRegistry.totalCount >= ASK_FOR_MEMPOOL_AND_CHAINTIP_CONNECTED_PEERS_LIMIT
+    ) {
+      this.requestMempoolAndChaintipWindowStart = now;
+      return true;
+    }
+    return false;
   }
 
   private getOrCreatePeerRecord(peer: string, sourcePeerId?: string): KnownPeerRecord {
@@ -171,7 +187,7 @@ export class PeerManager {
       return true;
     }
 
-    const cooldown = Math.pow(2, penalty.failureCount) * 60 * 1000;
+    const cooldown = Math.pow(3, penalty.failureCount) * 4 * 60 * 1000;
     return now - penalty.lastFailureAt >= cooldown;
   }
 
@@ -323,16 +339,18 @@ export class PeerManager {
   }
 
   registerInboundConnection(connection: PeerConnection): void {
-    this.clearConnectionBackoff(connection.id);
     this.connectionRegistry.registerInbound(connection);
   }
 
   registerOutboundConnection(connection: PeerConnection): void {
-    this.clearConnectionBackoff(connection.id);
     this.connectionRegistry.registerOutbound(connection);
     this.logger.info(
       `Outbound peer connected: ${connection.id}. Active outbound peers: ${this.connectionRegistry.outboundCount}`,
     );
+  }
+
+  onSuccessfulHandshake(address: string): void {
+    this.clearConnectionBackoff(address);
   }
 
   unregisterConnection(id: string): void {
@@ -373,7 +391,7 @@ export class PeerManager {
         if (this.toPenaltyKey(connection.id) !== penaltyKey) {
           continue;
         }
-        this.connectionRegistry.unregister(connection.id);
+        connection.close();
       }
     }
 

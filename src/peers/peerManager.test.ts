@@ -111,8 +111,7 @@ describe("PeerManager", () => {
     await peerManager.reportConnectionFailure(peer);
     expect(peerManager.getOutboundCandidates()).not.toContain(peer);
 
-    peerManager.registerOutboundConnection(connection);
-    peerManager.unregisterConnection(peer);
+    peerManager.onSuccessfulHandshake(peer);
 
     expect(peerManager.getOutboundCandidates()).toContain(peer);
 
@@ -127,23 +126,13 @@ describe("PeerManager", () => {
 
   test("successful inbound connection clears dial backoff for the same host", async () => {
     const peer = "198.51.100.102:18018";
-    const inboundConnection = {
-      id: "198.51.100.102:54321",
-      send: () => {},
-      context: {
-        socket: {
-          destroy: () => {},
-        },
-      },
-    } as any;
 
     await peerManager.addKnownPeers([peer], "198.51.100.10:18018");
     await peerManager.reportConnectionFailure(peer);
 
     expect(peerManager.getOutboundCandidates()).not.toContain(peer);
 
-    peerManager.registerInboundConnection(inboundConnection);
-    peerManager.unregisterConnection(inboundConnection.id);
+    peerManager.onSuccessfulHandshake(peer);
 
     expect(peerManager.getOutboundCandidates()).toContain(peer);
   });

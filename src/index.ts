@@ -1,17 +1,23 @@
 import { createServer, Socket } from "net";
 import { Level } from "level";
 import logger from "@/shared/logger";
-import { SERVER_PORT, PEERS_FILE, DEFAULT_DB_PATH } from "@/shared/constants";
+import { SERVER_PORT, PEERS_FILE, DEFAULT_DB_PATH, MINER_ENABLED } from "@/shared/constants";
 import { handleInboundConnection, handleOutboundConnection } from "@/net/connection";
 import { PeerManager } from "@/peers/peerManager";
 import { FilePeerStore } from "@/peers/peerStore";
 import ObjectManager from "./storage/objectManager";
-import type { ConnectedPeerContext, UtxoRow } from "./protocol/types";
+import type {
+  BlockMessage,
+  ConnectedPeerContext,
+  TransactionMessage,
+  UtxoRow,
+} from "./protocol/types";
 import UtxoStore from "./storage/UtxoStore";
 import BlockManager from "./storage/BlockManager";
 import { GENESIS_BLOCK, GENESIS_BLOCK_ID } from "./protocol/types";
 import { MessageDispatcher } from "./net/MessageDispatcher";
 import { TransactionManager } from "./storage/TransactionManager";
+import { initMiner } from "./minerController";
 
 export type NodeOptions = {
   dbPath?: string;
@@ -43,7 +49,16 @@ export async function startNode(opts?: NodeOptions): Promise<NodeHandle> {
   await utxosDb.open();
   const objectManager = new ObjectManager(logger, objectsDb);
   const utxoStore = new UtxoStore(logger, utxosDb);
-  const transactionManager = new TransactionManager(objectManager, peerManager, logger);
+  let minerController = null;
+  if (MINER_ENABLED) {
+    minerController = await initMiner();
+  }
+  const transactionManager = new TransactionManager(
+    objectManager,
+    peerManager,
+    logger,
+    minerController,
+  );
   const blockManager = new BlockManager(
     objectManager,
     utxoStore,
@@ -57,6 +72,21 @@ export async function startNode(opts?: NodeOptions): Promise<NodeHandle> {
     await blockManager.init();
   }
 
+  if (MINER_ENABLED) {
+    minerController?.onBlockMined(async (block: BlockMessage, coinbaseTx: TransactionMessage) => {
+      logger.info(`Mined new block with id ${objectManager.id(block)}`);
+      try {
+        // Run through same validation+storage path as network-received txs.
+        // Coinbase tx doesn't go to mempool (isCoinbaseCandidate check).
+        await transactionManager.handleIncoming(coinbaseTx);
+        await blockManager.handleIncoming(block);
+      } catch (e) {
+        logger.error(
+          `Failed to handle mined block ${objectManager.id(block)}: ${(e as Error).message}`,
+        );
+      }
+    });
+  }
   try {
     // Do this so we know that the listening socket is properly set up before we run tests.
     logger.info(`Starting server on port ${SERVER_PORT}...`);

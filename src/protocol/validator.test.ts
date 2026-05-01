@@ -504,7 +504,7 @@ describe("validateRegularTx", () => {
 
     tx.inputs![0]!.sig = await signTransaction(tx, senderPrivateKey);
     const transactionManager = new TransactionManager(deps.objectManager, deps.peerManager, logger);
-    transactionManager.initializeMempool(
+    await transactionManager.initializeMempool(
       new Map([
         [
           `${PREV_TX_ID}:0` as const,
@@ -522,7 +522,7 @@ describe("validateRegularTx", () => {
       [PSET2_COINBASE_ID]: PSET2_COINBASE,
     });
     const transactionManager = new TransactionManager(deps.objectManager, deps.peerManager, logger);
-    transactionManager.initializeMempool(
+    await transactionManager.initializeMempool(
       new Map([
         [
           `${PSET2_COINBASE_ID}:0` as const,
@@ -547,7 +547,7 @@ describe("validateRegularTx", () => {
       })),
     };
     const transactionManager = new TransactionManager(deps.objectManager, deps.peerManager, logger);
-    transactionManager.initializeMempool(
+    await transactionManager.initializeMempool(
       new Map([
         [
           `${PSET2_COINBASE_ID}:0` as const,

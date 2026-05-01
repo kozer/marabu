@@ -19,7 +19,7 @@ describe("pset3", () => {
       isolated: true,
     });
     // Give the node a moment to fully initialize and attempt bootstrap peer connections
-    await wait(1500);
+    await wait(500);
   }, 10_000);
 
   afterAll(async () => {
@@ -35,10 +35,11 @@ describe("pset3", () => {
 
     send(sock, { agent: "Grader 1", type: "hello", version: "0.10.0" });
     send(sock, { type: "object", object: GENESIS_BLOCK });
-    await collectMessages(sock, 2000);
+    await collectMessages(sock, 500);
 
     send(sock, { type: "getobject", objectid: GENESIS_BLOCK_ID });
-    const messages = await collectMessages(sock, 3000);
+    const untilObj = (id: string) => (m: any) => m.type === "object" && m.object && oid(m.object) === id;
+    const messages = await collectMessages(sock, 1000, undefined, untilObj(GENESIS_BLOCK_ID));
 
     const objectMsg = messages.find(
       (m: any) => m.type === "object" && m.object && oid(m.object) === GENESIS_BLOCK_ID,
@@ -64,10 +65,11 @@ describe("pset3", () => {
 
     send(sock, { agent: "Grader 1", type: "hello", version: "0.10.0" });
     send(sock, { type: "object", object: block2 });
-    await collectMessages(sock, 2000, GLOBAL_STORE);
+    await collectMessages(sock, 500, GLOBAL_STORE);
 
     send(sock, { type: "getobject", objectid: block2Id });
-    const messages = await collectMessages(sock, 3000, GLOBAL_STORE);
+    const untilObj = (id: string) => (m: any) => m.type === "object" && m.object && oid(m.object) === id;
+    const messages = await collectMessages(sock, 1000, GLOBAL_STORE, untilObj(block2Id));
 
     const objectMsg = messages.find(
       (m: any) => m.type === "object" && m.object && oid(m.object) === block2Id,
@@ -93,10 +95,11 @@ describe("pset3", () => {
 
     send(sock, { agent: "Grader 1", type: "hello", version: "0.10.0" });
     send(sock, { type: "object", object: block3 });
-    await collectMessages(sock, 3000, GLOBAL_STORE);
+    await collectMessages(sock, 1000, GLOBAL_STORE);
 
     send(sock, { type: "getobject", objectid: block3Id });
-    const messages = await collectMessages(sock, 3000, GLOBAL_STORE);
+    const untilObj = (id: string) => (m: any) => m.type === "object" && m.object && oid(m.object) === id;
+    const messages = await collectMessages(sock, 1000, GLOBAL_STORE, untilObj(block3Id));
 
     const objectMsg = messages.find(
       (m: any) => m.type === "object" && m.object && oid(m.object) === block3Id,
@@ -129,7 +132,7 @@ describe("pset3", () => {
     send(sock, { type: "object", object: incorrectTargetBlock });
 
     const errUntil = (m: any) => m.type === "error" && m.name === ErrorCode.INVALID_FORMAT;
-    const messages = await collectMessages(sock, 2000, undefined, errUntil);
+    const messages = await collectMessages(sock, 1000, undefined, errUntil);
     const errorMsg = messages.find(errUntil);
     expect(errorMsg).toBeDefined();
 
@@ -151,10 +154,11 @@ describe("pset3", () => {
 
     // Part A: Send valid block with coinbase, wait, then request it back
     send(sock, { type: "object", object: blockA });
-    await collectMessages(sock, 3000, GLOBAL_STORE);
+    await collectMessages(sock, 1000, GLOBAL_STORE);
 
     send(sock, { type: "getobject", objectid: blockAId });
-    const msgsA = await collectMessages(sock, 3000, GLOBAL_STORE);
+    const untilObj = (id: string) => (m: any) => m.type === "object" && m.object && oid(m.object) === id;
+    const msgsA = await collectMessages(sock, 1000, GLOBAL_STORE, untilObj(blockAId));
 
     const objectMsg = msgsA.find(
       (m: any) => m.type === "object" && m.object && oid(m.object) === blockAId,
@@ -164,11 +168,10 @@ describe("pset3", () => {
 
     // Part B: Send block that violates coinbase conservation, expect error
     send(sock, { type: "object", object: blockB });
-    const msgsB = await collectMessages(sock, 3000, GLOBAL_STORE);
+    const coinbaseErr = (m: any) => m.type === "error" && m.name === ErrorCode.INVALID_BLOCK_COINBASE;
+    const msgsB = await collectMessages(sock, 2000, GLOBAL_STORE, coinbaseErr);
 
-    const errorMsg = msgsB.find(
-      (m: any) => m.type === "error" && m.name === ErrorCode.INVALID_BLOCK_COINBASE,
-    );
+    const errorMsg = msgsB.find(coinbaseErr);
     expect(errorMsg).toBeDefined();
 
     sock.destroy();
@@ -188,11 +191,10 @@ describe("pset3", () => {
 
     send(sock, { type: "object", object: block });
 
-    const messages = await collectMessages(sock, 10_000, GLOBAL_STORE);
+    const outpointErr = (m: any) => m.type === "error" && m.name === ErrorCode.INVALID_TX_OUTPOINT;
+    const messages = await collectMessages(sock, 2000, GLOBAL_STORE, outpointErr);
 
-    let errorMsg = messages.find(
-      (m: any) => m.type === "error" && m.name === ErrorCode.INVALID_TX_OUTPOINT,
-    );
+    let errorMsg = messages.find(outpointErr);
     expect(errorMsg).toBeDefined();
 
     sock.destroy();
@@ -213,7 +215,8 @@ describe("pset3", () => {
     send(sock, { agent: "Grader 1", type: "hello", version: "0.10.0" });
     send(sock, { type: "object", object: block });
 
-    const messages = await collectMessages(sock, 32000, GLOBAL_STORE);
+    const unfindableUntil = (m: any) => m.type === "error" && m.name === ErrorCode.UNFINDABLE_OBJECT;
+    const messages = await collectMessages(sock, 8000, GLOBAL_STORE, unfindableUntil);
 
     const unfindableError = messages.find(
       (m: any) => m.type === "error" && m.name === ErrorCode.UNFINDABLE_OBJECT,
@@ -225,7 +228,7 @@ describe("pset3", () => {
     expect(unknownError).toBeDefined();
 
     sock.destroy();
-  }, 40_000);
+  }, 15_000);
 
   // ── Testcase 8: Block with two coinbase transactions ──
   // Grader transcript:
@@ -241,11 +244,10 @@ describe("pset3", () => {
 
     send(sock, { type: "object", object: block });
 
-    const messages = await collectMessages(sock, 5000, GLOBAL_STORE);
+    const coinbaseErr = (m: any) => m.type === "error" && m.name === ErrorCode.INVALID_BLOCK_COINBASE;
+    const messages = await collectMessages(sock, 2000, GLOBAL_STORE, coinbaseErr);
 
-    const errorMsg = messages.find(
-      (m: any) => m.type === "error" && m.name === ErrorCode.INVALID_BLOCK_COINBASE,
-    );
+    const errorMsg = messages.find(coinbaseErr);
     expect(errorMsg).toBeDefined();
 
     sock.destroy();
@@ -266,10 +268,11 @@ describe("pset3", () => {
 
     // Part A: Send valid block with coinbase, wait, then request it back
     send(sock, { type: "object", object: blockA });
-    await collectMessages(sock, 3000, GLOBAL_STORE);
+    await collectMessages(sock, 1000, GLOBAL_STORE);
 
     send(sock, { type: "getobject", objectid: blockAId });
-    const msgsA = await collectMessages(sock, 3000, GLOBAL_STORE);
+    const untilObj = (id: string) => (m: any) => m.type === "object" && m.object && oid(m.object) === id;
+    const msgsA = await collectMessages(sock, 1000, GLOBAL_STORE, untilObj(blockAId));
 
     const objectMsg = msgsA.find(
       (m: any) => m.type === "object" && m.object && oid(m.object) === blockAId,
@@ -278,15 +281,14 @@ describe("pset3", () => {
     expect(oid((objectMsg as any).object)).toBe(blockAId);
 
     send(sock, { type: "object", object: blockB });
-    const msgsB = await collectMessages(sock, 3000, GLOBAL_STORE);
+    const outpointErr = (m: any) => m.type === "error" && m.name === ErrorCode.INVALID_TX_OUTPOINT;
+    const msgsB = await collectMessages(sock, 2000, GLOBAL_STORE, outpointErr);
 
-    const errorMsg = msgsB.find(
-      (m: any) => m.type === "error" && m.name === ErrorCode.INVALID_TX_OUTPOINT,
-    );
+    const errorMsg = msgsB.find(outpointErr);
     expect(errorMsg).toBeDefined();
 
     sock.destroy();
-  }, 15_000);
+  }, 10_000);
 
   // ── Testcase 10: Double spend in successive blocks ─────
   // Grader transcript (same connection, three parts):
@@ -306,10 +308,11 @@ describe("pset3", () => {
 
     // Part A: Send valid block with coinbase, wait, then request it back
     send(sock, { type: "object", object: blockA });
-    await collectMessages(sock, 3000, GLOBAL_STORE);
+    await collectMessages(sock, 1000, GLOBAL_STORE);
 
     send(sock, { type: "getobject", objectid: blockAId });
-    const msgsA = await collectMessages(sock, 3000, GLOBAL_STORE);
+    const untilObj = (id: string) => (m: any) => m.type === "object" && m.object && oid(m.object) === id;
+    const msgsA = await collectMessages(sock, 1000, GLOBAL_STORE, untilObj(blockAId));
 
     const objectMsgA = msgsA.find(
       (m: any) => m.type === "object" && m.object && oid(m.object) === blockAId,
@@ -319,10 +322,10 @@ describe("pset3", () => {
 
     // Part B: Send block spending coinbase once, wait, then request it back
     send(sock, { type: "object", object: blockB });
-    await collectMessages(sock, 3000, GLOBAL_STORE);
+    await collectMessages(sock, 1000, GLOBAL_STORE);
 
     send(sock, { type: "getobject", objectid: blockBId });
-    const msgsB = await collectMessages(sock, 3000, GLOBAL_STORE);
+    const msgsB = await collectMessages(sock, 1000, GLOBAL_STORE, untilObj(blockBId));
 
     const objectMsgB = msgsB.find(
       (m: any) => m.type === "object" && m.object && oid(m.object) === blockBId,
@@ -331,11 +334,10 @@ describe("pset3", () => {
     expect(oid((objectMsgB as any).object)).toBe(blockBId);
 
     send(sock, { type: "object", object: blockC });
-    const msgsC = await collectMessages(sock, 3000, GLOBAL_STORE);
+    const outpointErr = (m: any) => m.type === "error" && m.name === ErrorCode.INVALID_TX_OUTPOINT;
+    const msgsC = await collectMessages(sock, 2000, GLOBAL_STORE, outpointErr);
 
-    let errorMsg = msgsC.find(
-      (m: any) => m.type === "error" && m.name === ErrorCode.INVALID_TX_OUTPOINT,
-    );
+    let errorMsg = msgsC.find(outpointErr);
     expect(errorMsg).toBeDefined();
 
     sock.destroy();
@@ -356,10 +358,11 @@ describe("pset3", () => {
 
     // Part A: Send standalone coinbase tx, wait, then request it back
     send(sock, { type: "object", object: coinbaseTx });
-    await collectMessages(sock, 2000);
+    await collectMessages(sock, 500);
 
     send(sock, { type: "getobject", objectid: coinbaseTxId });
-    const msgsA = await collectMessages(sock, 3000, GLOBAL_STORE);
+    const untilObj = (id: string) => (m: any) => m.type === "object" && m.object && oid(m.object) === id;
+    const msgsA = await collectMessages(sock, 1000, GLOBAL_STORE, untilObj(coinbaseTxId));
 
     const objectMsg = msgsA.find(
       (m: any) => m.type === "object" && m.object && oid(m.object) === coinbaseTxId,
@@ -369,11 +372,10 @@ describe("pset3", () => {
 
     // Part B: Send block whose tx spends a UTXO not in any previous block's UTXO set
     send(sock, { type: "object", object: block });
-    const msgsB = await collectMessages(sock, 3000, GLOBAL_STORE);
+    const outpointErr = (m: any) => m.type === "error" && m.name === ErrorCode.INVALID_TX_OUTPOINT;
+    const msgsB = await collectMessages(sock, 2000, GLOBAL_STORE, outpointErr);
 
-    let errorMsg = msgsB.find(
-      (m: any) => m.type === "error" && m.name === ErrorCode.INVALID_TX_OUTPOINT,
-    );
+    let errorMsg = msgsB.find(outpointErr);
     expect(errorMsg).toBeDefined();
 
     sock.destroy();

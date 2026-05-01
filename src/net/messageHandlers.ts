@@ -97,13 +97,7 @@ export const iHaveObjectHandler = async (
   connection: Connection,
   managers: ManagerSet,
 ) => {
-  let hasObject = false;
-  try {
-    await managers.object.get(message.objectid);
-    hasObject = true;
-  } catch (e) {}
-
-  if (!hasObject) {
+  if (!(await managers.object.exists(message.objectid))) {
     connection.send({
       type: MessageType.GET_OBJECT,
       objectid: message.objectid,
@@ -126,7 +120,7 @@ export const getObjectHandler = async (
       return;
     }
   } catch (e) {
-    connection.log.error(`Error retrieving object ${message.objectid}: ${e}`);
+    connection.log.trace(`Error retrieving object ${message.objectid}: ${e}`);
   }
   throw new ProtocolError(ErrorCode.UNFINDABLE_OBJECT, `Object ${message.objectid} not found`);
 };
@@ -137,13 +131,9 @@ export const objectHandler = async (
   managers: ManagerSet,
 ) => {
   const objId = managers.object.id(message.object);
-  try {
-    await managers.object.get(objId);
-    return;
-  } catch (e) {}
   connection.log.error(`Received object ${objId} from ${connection.id}`);
   if (message.object.type === ObjectType.TRANSACTION) {
-    await managers.tx.handleIncoming(message.object, connection);
+    await managers.tx.handleIncoming(message.object, connection.id);
   } else if (message.object.type === ObjectType.BLOCK) {
     await managers.block.handleIncoming(message.object, connection.id);
   }
@@ -157,11 +147,9 @@ export const chainTipHandler = async (
   if (managers.block.getTip() === message.blockid) {
     return;
   }
-
-  try {
-    await managers.object.get(message.blockid);
+  if (await managers.object.exists(message.blockid)) {
     return; // We already have it, no need to process it again
-  } catch (e) {}
+  }
   await managers.block.handleIncoming(message.blockid, connection.id);
 };
 

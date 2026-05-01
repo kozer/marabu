@@ -69,7 +69,10 @@ class BlockManager implements BlockManagerInterface {
     }
     if (this.chainState.height !== -1) {
       const tipBlock = (await this.objectManager.get(this.chainState.tip)) as BlockMessage;
-      this.transactionManager.initializeMempool(
+      this.logger.info(
+        `Initializing mempool with UTXO set and transactions from current tip block ${this.chainState.tip}...`,
+      );
+      await this.transactionManager.initializeMempool(
         await this.getUtxoSet(this.chainState.tip),
         await this.getBlockTransactions(tipBlock),
       );
@@ -85,12 +88,16 @@ class BlockManager implements BlockManagerInterface {
 
   async handleIncoming(
     blockOrBlockId: BlockMessage | string,
-    connectionId: string,
+    connectionId?: string,
   ): Promise<ValidateResult | void> {
     if (typeof blockOrBlockId === "string") {
       blockOrBlockId = await this.findBlock(blockOrBlockId);
     }
     const blockId = this.objectManager.id(blockOrBlockId);
+    if (await this.objectManager.exists(blockId)) {
+      this.logger.trace(`Already have block ${blockId}, skipping`);
+      return;
+    }
     try {
       const result = await this.validateBlock(blockOrBlockId);
       await this.storeValidatedBlock(blockId, blockOrBlockId, result);
@@ -204,7 +211,6 @@ class BlockManager implements BlockManagerInterface {
     const oldHeight = this.chainState.height;
 
     await this.utxoStore.put(blockId, result.utxoSet);
-    await this.objectManager.putChainState(blockId, result.height);
     await this.objectManager.put(block, result.height);
 
     if (result.height > oldHeight) {
@@ -220,6 +226,7 @@ class BlockManager implements BlockManagerInterface {
     oldTip: string,
     oldHeight: number,
   ): Promise<void> {
+    await this.objectManager.putChainState(blockId, result.height);
     if (block.previd === oldTip || oldHeight === -1 || block.previd === null) {
       // This means the new block extends our current chain, or we are at genesis, so we don't need to find common accestor.
       await this.transactionManager.reconcileMempool(result.utxoSet, []);

@@ -2,7 +2,7 @@ import type pino from "pino";
 import {
   ErrorCode,
   MessageType,
-  type Connection,
+  type MinerController,
   type TransactionMessage,
   type TxEnriched,
   type UtxoSnapshot,
@@ -32,9 +32,10 @@ export class TransactionManager {
     private readonly objectManager: ObjectManagerInterface,
     private readonly peerManager: PeerManager,
     private readonly logger: pino.Logger,
+    private miner: MinerController | null = null,
   ) {}
 
-  initializeMempool(state: UtxoSnapshot | null, txs: TransactionMessage[]): void {
+  async initializeMempool(state: UtxoSnapshot | null, txs: TransactionMessage[]): Promise<void> {
     this.mempoolState = state ? new Map(state) : new Map();
     this.mempoolTxs.clear();
     for (const tx of txs) {
@@ -43,6 +44,7 @@ export class TransactionManager {
     this.logger.trace(
       `Initialized mempool with transactions: ${[...this.mempoolTxs.keys()].join(", ")}, mempool state has ${this.mempoolState.size} UTXOs`,
     );
+    this?.miner?.restartMine(await this.getMempool(), await this.objectManager.getChainState());
   }
 
   async handleMempoolRequest(txIds: string[]): Promise<void> {
@@ -62,7 +64,11 @@ export class TransactionManager {
   async getMempool(): Promise<string[]> {
     return [...this.mempoolTxs.keys()];
   }
-  async handleIncoming(tx: TransactionMessage, connection: Connection): Promise<void> {
+
+  async handleIncoming(tx: TransactionMessage, connectionId?: string): Promise<void> {
+    if (await this.objectManager.exists(this.objectManager.id(tx))) {
+      return;
+    }
     if (isCoinbaseCandidate(tx)) {
       // For coinbase transactions, we only do basic format checks since they are not fully valid until included in a block and validated as part of that block.
       checkCoinbaseFormat(tx);
@@ -83,7 +89,7 @@ export class TransactionManager {
         type: MessageType.IHAVEOBJECT,
         objectid: this.objectManager.id(tx),
       },
-      connection.id,
+      connectionId,
     );
   }
 
@@ -124,10 +130,10 @@ export class TransactionManager {
         this.logger.warn(
           `Removing transaction ${this.objectManager.id(tx)} from mempool during reconciliation: ${(err as Error).message}`,
         );
-        this.mempoolTxs.delete(this.objectManager.id(tx));
       }
     }
     this.mempoolState = newMempoolState;
+    this.miner?.restartMine(await this.getMempool(), await this.objectManager.getChainState());
     this.logger.trace(`Reconciled mempool transactions: ${[...this.mempoolTxs.keys()].join(", ")}`);
   }
 

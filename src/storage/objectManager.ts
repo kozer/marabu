@@ -1,6 +1,3 @@
-import canonicalize from "canonicalize";
-import { blake2s } from "@noble/hashes/blake2.js";
-import { bytesToHex } from "@noble/hashes/utils.js";
 import { Level } from "level";
 import type { ChainState, ObjectData } from "@/protocol/types";
 import { DEFAULT_DB_PATH, FIND_TIMEOUT_MS } from "@/shared/constants";
@@ -9,6 +6,7 @@ import RequestQueue from "./requestQueue";
 import type pino from "pino";
 import ProtocolError from "@/protocol/error";
 import { MultiProtocolError } from "@/protocol/error";
+import { hashObject } from "@/shared/utils";
 
 export type PendingWaiter = {
   resolve: (value: ObjectData) => void;
@@ -173,12 +171,11 @@ class ObjectManager implements ObjectManagerInterface {
   }
 
   id(obj: unknown): string {
-    const canonical = canonicalize(obj);
-    if (!canonical) {
+    const hash = hashObject(obj);
+    if (!hash) {
       throw new Error("Failed to canonicalize object");
     }
-
-    return bytesToHex(blake2s(Buffer.from(canonical, "utf8")));
+    return hash;
   }
 
   async exists(id: string): Promise<boolean> {

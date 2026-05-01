@@ -157,7 +157,7 @@ export const ChainTipMessageSchema = z.object({
 
 export const GetOjbectMessageSchema = z.object({
   type: z.literal(MessageType.GET_OBJECT),
-  objectid: z.hex().length(64),
+  objectid: z.hex().max(64),
 });
 
 export const IHaveObjectMessageSchema = z.object({
@@ -180,7 +180,7 @@ const AsciiPrintableSchema = z
 export const BlockSchema = z.object({
   type: z.literal(ObjectType.BLOCK),
   created: z.int().nonnegative(),
-  nonce: z.hex().length(64),
+  nonce: z.hex().max(64),
   miner: AsciiPrintableSchema.optional(),
   note: AsciiPrintableSchema.optional(),
   previd: z.hex().length(64).nullable(),
