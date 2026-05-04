@@ -34,8 +34,8 @@ export interface BlockManagerInterface {
   getUtxoSet(blockId: string | null): Promise<UtxoSnapshot | null>;
   getBlockTransactions(block: BlockMessage): Promise<TransactionMessage[]>;
   storeValidatedBlock(blockId: string, block: ObjectData, result: ValidateResult): Promise<void>;
-  handleIncoming(block: BlockMessage, id: string): Promise<ValidateResult | void>;
-  validateBlock(block: BlockMessage): Promise<ValidateResult | null>;
+  handleIncoming(block: BlockMessage): Promise<ValidateResult | void>;
+  validateBlock(blockId: string, block: BlockMessage): Promise<ValidateResult | null>;
   getBlockHeight(blockId?: string): Promise<number>;
   init(genBlock?: any, genesisId?: string): Promise<void>;
   getTip(): string;
@@ -86,33 +86,29 @@ class BlockManager implements BlockManagerInterface {
     return this.chainState.height;
   }
 
-  async handleIncoming(
-    blockOrBlockId: BlockMessage | string,
-    connectionId?: string,
-  ): Promise<ValidateResult | void> {
+  async handleIncoming(blockOrBlockId: BlockMessage | string): Promise<ValidateResult | void> {
     if (typeof blockOrBlockId === "string") {
       blockOrBlockId = await this.findBlock(blockOrBlockId);
     }
     const blockId = this.objectManager.id(blockOrBlockId);
     if (await this.objectManager.exists(blockId)) {
       this.logger.trace(`Already have block ${blockId}, skipping`);
+      this.peerManager.broadcast({
+        type: MessageType.IHAVEOBJECT,
+        objectid: blockId,
+      });
       return;
     }
     try {
-      const result = await this.validateBlock(blockOrBlockId);
+      const result = await this.validateBlock(blockId, blockOrBlockId);
       await this.storeValidatedBlock(blockId, blockOrBlockId, result);
-      this.peerManager.broadcast(
-        {
-          type: MessageType.IHAVEOBJECT,
-          objectid: blockId,
-        },
-        connectionId,
-      );
+      this.peerManager.broadcast({
+        type: MessageType.IHAVEOBJECT,
+        objectid: blockId,
+      });
       return result;
     } catch (e) {
-      this.logger.error(
-        `Validation failed for block ${blockId} from connection ${connectionId}: ${(e as Error).message}`,
-      );
+      this.logger.error(`Validation failed for block ${blockId} : ${(e as Error).message}`);
       this.objectManager.rejectPending(blockId, e as Error);
       throw e;
     }
@@ -126,27 +122,27 @@ class BlockManager implements BlockManagerInterface {
     return new Map((await this.utxoStore.get(blockId)) ?? []);
   }
 
-  private async findBlock(blockId: string): Promise<BlockMessage> {
+  private async findBlock(id: string, dependantId?: string): Promise<BlockMessage> {
     try {
-      this.logger.info(`Finding block ${blockId} from peers...`);
+      this.logger.info(`Finding block ${id} from peers...,dependant on ${dependantId}`);
       const result = await this.objectManager.findObject(
-        blockId,
-        (id) =>
+        { id, dependantId },
+        (id) => {
+          this.logger.info(`Broadcasting getobject for block ${id} to find block from peers...`);
           this.peerManager.broadcast({
             type: MessageType.GET_OBJECT,
             objectid: id,
-          }),
+          });
+        },
         FIND_TIMEOUT_MS,
       );
-      this.logger.info(
-        `findBlock: result for block ${blockId} is ${result ? "found" : "not found"}`,
-      );
+      this.logger.info(`findBlock: result for block ${id} is ${result ? "found" : "not found"}`);
       if (result && result.type === ObjectType.BLOCK) {
         //This should always be a block if we got a result, but we check just in case.
-        this.logger.info(`Block ${blockId} downloaded successfully`);
+        this.logger.info(`Block ${id} downloaded successfully`);
         return result as BlockMessage;
       } else {
-        throw new Error(`Object ${blockId} found but is not a block (type: ${result?.type})`);
+        throw new Error(`Object ${id} found but is not a block (type: ${result?.type})`);
       }
     } catch (err) {
       const errors: ProtocolError[] = [];
@@ -156,7 +152,7 @@ class BlockManager implements BlockManagerInterface {
       if (err instanceof MultiProtocolError) {
         errors.push(...err.errors);
       }
-      errors.push(new ProtocolError(ErrorCode.UNFINDABLE_OBJECT, `Block ${blockId} not found.`));
+      errors.push(new ProtocolError(ErrorCode.UNFINDABLE_OBJECT, `Block ${id} not found.`));
       throw new MultiProtocolError(errors);
     }
   }
@@ -165,7 +161,9 @@ class BlockManager implements BlockManagerInterface {
     const results = await Promise.allSettled(
       block.txids.map((txid) =>
         this.objectManager.findObject(
-          txid,
+          {
+            id: txid,
+          },
           (id) =>
             this.peerManager.broadcast({
               type: MessageType.GET_OBJECT,
@@ -324,7 +322,7 @@ class BlockManager implements BlockManagerInterface {
     await this.utxoStore.close();
   }
 
-  public async validateBlock(block: BlockMessage): Promise<ValidateResult> {
+  public async validateBlock(blockId: string, block: BlockMessage): Promise<ValidateResult> {
     /*
 	    Check that if previd is null, then the block is the genesis block.
 			Protocol specifies that the genesis block has a specific id.
@@ -400,7 +398,7 @@ class BlockManager implements BlockManagerInterface {
       } catch {}
 
       if (!parent) {
-        parent = await this.findBlock(block.previd!);
+        parent = await this.findBlock(block.previd, blockId);
       }
 
       let parentHeight = await this.objectManager.getBlockHeight(block.previd);

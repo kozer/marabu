@@ -133,24 +133,32 @@ export const objectHandler = async (
   const objId = managers.object.id(message.object);
   connection.log.error(`Received object ${objId} from ${connection.id}`);
   if (message.object.type === ObjectType.TRANSACTION) {
-    await managers.tx.handleIncoming(message.object, connection.id);
+    await managers.tx.handleIncoming(message.object);
   } else if (message.object.type === ObjectType.BLOCK) {
-    await managers.block.handleIncoming(message.object, connection.id);
+    await managers.block.handleIncoming(message.object);
   }
 };
 
 export const chainTipHandler = async (
   message: ChainTipMessage,
-  connection: Connection,
+  _connection: Connection,
   managers: ManagerSet,
 ) => {
   if (managers.block.getTip() === message.blockid) {
+    managers.peer.broadcast({
+      type: MessageType.IHAVEOBJECT,
+      objectid: message.blockid,
+    });
     return;
   }
   if (await managers.object.exists(message.blockid)) {
+    managers.peer.broadcast({
+      type: MessageType.IHAVEOBJECT,
+      objectid: message.blockid,
+    });
     return; // We already have it, no need to process it again
   }
-  await managers.block.handleIncoming(message.blockid, connection.id);
+  await managers.block.handleIncoming(message.blockid);
 };
 
 type GenericHandler = (

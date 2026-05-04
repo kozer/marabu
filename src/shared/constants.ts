@@ -23,9 +23,9 @@ export const MAX_PEERS = 1000;
 export const OUTBOUND_PEER_LIMIT = 200;
 
 export const DEFAULT_DB_PATH = "./marabudb";
-export const FIND_TIMEOUT_MS = isTest ? 1_000 : 6_000;
+export const FIND_TIMEOUT_MS = isTest ? 1_000 : 4_000;
 export const QUEUE_DELAY_PER_BATCH_MS = 100;
-export const REQUEST_BATCH_SIZE = 10;
+export const REQUEST_BATCH_SIZE = 50;
 
 export const MAX_PEERS_FROM_MESSAGE = 32;
 export const MAX_PEERS_PER_SOURCE = 64;
@@ -41,6 +41,7 @@ export const ASK_FOR_MEMPOOL_AND_CHAINTIP_CONNECTED_PEERS_LIMIT = 5;
 export const agent = "SubZero";
 export const MINE_CPU_RATIO = 0.8;
 export const MINER_ENABLED = process.env.MINER_ENABLED === "true";
+export const INBOUND_TIMEOUT_MS = 10 * 1000;
 export const MINE_YIELD_EVERY_MS = process.env.YIELD_EVERY_MS
   ? Number(process.env.YIELD_EVERY_MS)
   : 1000;

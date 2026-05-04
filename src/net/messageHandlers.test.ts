@@ -273,7 +273,6 @@ describe("messageHandlers object exchange", () => {
           type: MessageType.IHAVEOBJECT,
           objectid: objectId,
         },
-        excludePeerId: "peer-1",
       },
     ]);
   });

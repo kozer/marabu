@@ -50,13 +50,10 @@ export class TransactionManager {
   async handleMempoolRequest(txIds: string[]): Promise<void> {
     for (const txId of txIds) {
       if (!(await this.objectManager.exists(txId))) {
-        this.peerManager.broadcast(
-          {
-            type: MessageType.GET_OBJECT,
-            objectid: txId,
-          },
-          undefined, // Broadcast to all peers
-        );
+        this.peerManager.broadcast({
+          type: MessageType.GET_OBJECT,
+          objectid: txId,
+        });
       }
     }
   }
@@ -65,7 +62,7 @@ export class TransactionManager {
     return [...this.mempoolTxs.keys()];
   }
 
-  async handleIncoming(tx: TransactionMessage, connectionId?: string): Promise<void> {
+  async handleIncoming(tx: TransactionMessage): Promise<void> {
     if (await this.objectManager.exists(this.objectManager.id(tx))) {
       return;
     }
@@ -82,13 +79,10 @@ export class TransactionManager {
     // at which point the tx will become valid and added to the mempool.
     await this.checkAndAddToMempool(tx, this.mempoolState);
     this.logger.trace(`Current mempool transactions: ${[...this.mempoolTxs.keys()].join(", ")}`);
-    this.peerManager.broadcast(
-      {
-        type: MessageType.IHAVEOBJECT,
-        objectid: this.objectManager.id(tx),
-      },
-      connectionId,
-    );
+    this.peerManager.broadcast({
+      type: MessageType.IHAVEOBJECT,
+      objectid: this.objectManager.id(tx),
+    });
   }
 
   async checkAndAddToMempool(tx: TransactionMessage, mempool: UtxoSnapshot): Promise<void> {

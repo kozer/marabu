@@ -70,7 +70,7 @@ function createFakeBlockManager(args: {
       return null;
     },
     put: async () => {},
-    findObject: async (id: string) => {
+    findObject: async ({ id }: { id: string }) => {
       const tx = args.blockTxs?.find((tx) => hash(tx) === id);
       if (tx) return tx;
       if (args.genesisBlock) return args.genesisBlock;
@@ -587,7 +587,8 @@ describe("validateBlock", () => {
       parentUtxo: null,
       blockTxs: [PSET3_BLOCK_TX],
     });
-    expect(blockManager.validateBlock(PSET3_VALID_BLOCK)).rejects.toThrowError();
+    const blockId = hash(PSET3_VALID_BLOCK);
+    expect(blockManager.validateBlock(blockId, PSET3_VALID_BLOCK)).rejects.toThrowError();
   });
   test("matches the documented PSET3 coinbase txid", () => {
     expect(hash(PSET3_BLOCK_TX)).toBe(PSET3_BLOCK_TX_ID);
@@ -598,7 +599,8 @@ describe("validateBlock", () => {
       blockTxs: [PSET3_BLOCK_TX],
       genesisBlock: GENESIS_BLOCK,
     });
-    const result = await blockManager.validateBlock(PSET3_VALID_BLOCK);
+    const blockId = hash(PSET3_VALID_BLOCK);
+    const result = await blockManager.validateBlock(blockId, PSET3_VALID_BLOCK);
     expect(result).not.toBeNull();
     expect(result?.height).toBe(1);
     expect(result?.utxoSet.get(`${PSET3_BLOCK_TX_ID}:0`)).toEqual({

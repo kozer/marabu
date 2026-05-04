@@ -1,7 +1,7 @@
 import * as ed from "@noble/ed25519";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import canonicalize from "canonicalize";
-import { GENESIS_BLOCK_ID, BLOCK_REWARD, ObjectType } from "@/protocol/types";
+import { GENESIS_BLOCK, GENESIS_BLOCK_ID, BLOCK_REWARD, ObjectType } from "@/protocol/types";
 import { buildBlock, buildSpend, coinbase, nonce, oid } from "../test_helpers";
 
 // ── Key pairs ───────────────────────────────────────────
@@ -236,6 +236,7 @@ export const TC3_REORG = await (async () => {
 // ── Global object store (serves getobject replies during tests) ──
 
 export const P5_GLOBAL_STORE = new Map<string, unknown>([
+  [GENESIS_BLOCK_ID, GENESIS_BLOCK],
   // TC1A
   [TC1A.CB_SETUP_ID, TC1A.CB_SETUP],
   // TC1B

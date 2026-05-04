@@ -1,5 +1,5 @@
 import { Socket } from "net";
-import { MAX_PEERS, OUTBOUND_PEER_LIMIT } from "@/shared/constants";
+import { INBOUND_TIMEOUT_MS, MAX_PEERS, OUTBOUND_PEER_LIMIT } from "@/shared/constants";
 import { parsePeerAddress } from "@/shared/utils";
 import { ConnectionDirection, type ConnectedPeerContext, type PeerContext } from "@/protocol/types";
 import { PeerConnection } from "@/net/peerConnection";
@@ -45,7 +45,7 @@ export function handleOutboundConnection(ctx: PeerContext) {
     const client = new Socket();
     const cleanPeer = parsed.canonical;
 
-    client.setTimeout(2000);
+    client.setTimeout(INBOUND_TIMEOUT_MS);
 
     const connectedContext: ConnectedPeerContext = {
       id: cleanPeer,

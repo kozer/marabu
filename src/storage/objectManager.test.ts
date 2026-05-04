@@ -1,12 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import ObjectManager from "@/storage/objectManager";
-import {
-  GENESIS_BLOCK,
-  GENESIS_BLOCK_ID,
-  MessageType,
-  ObjectType,
-  TARGET,
-} from "@/protocol/types";
+import { GENESIS_BLOCK, GENESIS_BLOCK_ID, MessageType, ObjectType, TARGET } from "@/protocol/types";
 import type { ObjectData, ObjectMessage } from "@/protocol/types";
 const logger = {
   info: (..._args: any[]) => {},
@@ -177,9 +171,7 @@ describe("ObjectManager", () => {
     const { manager } = createManager();
     const objectId = "ff".repeat(32);
 
-    expect(manager.get(objectId)).rejects.toThrow(
-      `Object ${objectId} not found`,
-    );
+    expect(manager.get(objectId)).rejects.toThrow(`Object ${objectId} not found`);
   });
 
   test("returns immediately from findObject when the object already exists", async () => {
@@ -188,9 +180,9 @@ describe("ObjectManager", () => {
     const objectId = manager.id(object.object);
     const requested: string[] = [];
 
-    expect(
-      await manager.findObject(objectId, (id) => requested.push(id)),
-    ).toEqual(object.object);
+    expect(await manager.findObject({ id: objectId }, (id) => requested.push(id))).toEqual(
+      object.object,
+    );
     expect(requested).toEqual([]);
   });
 
@@ -204,7 +196,7 @@ describe("ObjectManager", () => {
       resolveRequest = resolve;
     });
 
-    const pending = manager.findObject(objectId, (id) => {
+    const pending = manager.findObject({ id: objectId }, (id) => {
       requested.push(id);
       resolveRequest(id);
     });
@@ -238,8 +230,8 @@ describe("ObjectManager", () => {
       }
     };
 
-    const firstPending = manager.findObject(objectId, requestObject);
-    const secondPending = manager.findObject(objectId, requestObject);
+    const firstPending = manager.findObject({ id: objectId }, requestObject);
+    const secondPending = manager.findObject({ id: objectId }, requestObject);
 
     expect(firstRequestSeen).resolves.toBe(objectId);
 
@@ -277,13 +269,13 @@ describe("ObjectManager", () => {
         }
       };
 
-      const first = manager.findObject(objectId, requestObject).then(
+      const first = manager.findObject({ id: objectId }, requestObject).then(
         () => {
           throw new Error("Expected first waiter to time out");
         },
         (error) => error,
       );
-      const second = manager.findObject(objectId, requestObject);
+      const second = manager.findObject({ id: objectId }, requestObject);
 
       expect(firstRequestSeen).resolves.toBe(objectId);
 
@@ -311,8 +303,6 @@ describe("ObjectManager", () => {
   test("throws when id cannot canonicalize unsupported data", () => {
     const manager = createManager().manager;
 
-    expect(() => manager.id(undefined)).toThrow(
-      "Failed to canonicalize object",
-    );
+    expect(() => manager.id(undefined)).toThrow("Failed to canonicalize object");
   });
 });
