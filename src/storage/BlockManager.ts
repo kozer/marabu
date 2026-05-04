@@ -91,7 +91,7 @@ class BlockManager implements BlockManagerInterface {
       blockOrBlockId = await this.findBlock(blockOrBlockId);
     }
     const blockId = this.objectManager.id(blockOrBlockId);
-    if (await this.objectManager.exists(blockId)) {
+    if ((await this.objectManager.exists(blockId)) || this.chainState.tip === blockId) {
       this.logger.trace(`Already have block ${blockId}, skipping`);
       this.peerManager.broadcast({
         type: MessageType.IHAVEOBJECT,

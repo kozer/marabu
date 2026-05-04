@@ -144,20 +144,6 @@ export const chainTipHandler = async (
   _connection: Connection,
   managers: ManagerSet,
 ) => {
-  if (managers.block.getTip() === message.blockid) {
-    managers.peer.broadcast({
-      type: MessageType.IHAVEOBJECT,
-      objectid: message.blockid,
-    });
-    return;
-  }
-  if (await managers.object.exists(message.blockid)) {
-    managers.peer.broadcast({
-      type: MessageType.IHAVEOBJECT,
-      objectid: message.blockid,
-    });
-    return; // We already have it, no need to process it again
-  }
   await managers.block.handleIncoming(message.blockid);
 };
 
