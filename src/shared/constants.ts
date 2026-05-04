@@ -21,6 +21,7 @@ export const INVALID_SELF_HOSTS = ["localhost", "loopback"];
 export const PEERS_FILE = "./peers.json";
 export const MAX_PEERS = 1000;
 export const OUTBOUND_PEER_LIMIT = 200;
+export const HASHRATE_REPORT_INTERVAL_MS = 60 * 1000;
 
 export const DEFAULT_DB_PATH = "./marabudb";
 export const FIND_TIMEOUT_MS = isTest ? 1_000 : 4_000;
@@ -42,6 +43,5 @@ export const agent = "SubZero";
 export const MINE_CPU_RATIO = 0.8;
 export const MINER_ENABLED = process.env.MINER_ENABLED === "true";
 export const INBOUND_TIMEOUT_MS = 10 * 1000;
-export const MINE_YIELD_EVERY_MS = process.env.YIELD_EVERY_MS
-  ? Number(process.env.YIELD_EVERY_MS)
-  : 1000;
+export const MINE_YIELD = process.env.MINE_YIELD ? Number(process.env.MINE_YIELD) : 50000;
+export const ENABLE_MINER_PROFILING = process.env.ENABLE_MINER_PROFILING === "true";

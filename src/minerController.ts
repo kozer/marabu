@@ -1,8 +1,17 @@
 import { Worker } from "worker_threads";
 import path from "path";
 import os from "os";
-import { MINER_EVENTS, type ChainState, type MinerController } from "./protocol/types";
-import { MINE_CPU_RATIO } from "./shared/constants";
+import {
+  MINER_EVENTS,
+  type ChainState,
+  type HashRateReport,
+  type MinerController,
+} from "./protocol/types";
+import {
+  ENABLE_MINER_PROFILING,
+  HASHRATE_REPORT_INTERVAL_MS,
+  MINE_CPU_RATIO,
+} from "./shared/constants";
 
 const workerPath = path.resolve(
   import.meta.dir,
@@ -15,6 +24,11 @@ const workers: Worker[] = [];
 let KEYS_PATH = path.resolve("keys.json");
 
 export const initMiner = async () => {
+  let hashrateSubscribers: ((payload: HashRateReport) => void)[] = [];
+  let blockMinedSubscribers: ((block: any, coinbaseTx: any) => void)[] = [];
+
+  const latestStats = new Map<number, HashRateReport>();
+  let lastAggregateReport = 0;
   const keysExist = await Bun.file(KEYS_PATH).exists();
   if (!keysExist) {
     console.warn("Warning: Miner keys not found. Please generate keys before mining.");
@@ -42,6 +56,30 @@ export const initMiner = async () => {
     worker.on("exit", (code) => {
       if (code !== 0) console.error(`Miner worker ${i} exited with code ${code}`);
     });
+    worker.on("message", (msg: any) => {
+      if (msg.type === MINER_EVENTS.HASHRATE) {
+        latestStats.set(i, msg.payload);
+        const now = Date.now();
+        if (now - lastAggregateReport >= HASHRATE_REPORT_INTERVAL_MS) {
+          lastAggregateReport = now;
+          const combinedHashrate = Array.from(latestStats.values()).reduce(
+            (acc, stat) => acc + stat.hashrate,
+            0,
+          );
+          hashrateSubscribers.forEach((cb) =>
+            cb({ hashrate: combinedHashrate, height: msg.payload.height }),
+          );
+        }
+      }
+      if (msg.type === MINER_EVENTS.ON_BLOCK_MINED && ENABLE_MINER_PROFILING) {
+        workers.forEach((other) => {
+          try {
+            other.postMessage({ type: MINER_EVENTS.STOP });
+          } catch {}
+        });
+        blockMinedSubscribers.forEach((cb) => cb(msg.payload.block, msg.payload.coinbaseTx));
+      }
+    });
     workers.push(worker);
   }
 
@@ -53,20 +91,11 @@ export const initMiner = async () => {
         } catch {}
       });
     },
+    onHashrateUpdate: (callback: (payload: HashRateReport) => void) => {
+      hashrateSubscribers.push(callback);
+    },
     onBlockMined: (callback: (block: any, coinbaseTx: any) => void) => {
-      workers.forEach((w) => {
-        w.on("message", (msg) => {
-          if (msg.type === MINER_EVENTS.ON_BLOCK_MINED) {
-            // When one finds a block, tell the others to stop immediately
-            workers.forEach((other) => {
-              try {
-                other.postMessage({ type: MINER_EVENTS.STOP });
-              } catch {}
-            });
-            callback(msg.payload.block, msg.payload.coinbaseTx);
-          }
-        });
-      });
+      blockMinedSubscribers.push(callback);
     },
     restartMine: (txs: string[], state: ChainState) => {
       workers.forEach((w) => {

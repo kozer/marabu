@@ -124,11 +124,10 @@ class BlockManager implements BlockManagerInterface {
 
   private async findBlock(id: string, dependantId?: string): Promise<BlockMessage> {
     try {
-      this.logger.info(`Finding block ${id} from peers...,dependant on ${dependantId}`);
+      this.logger.trace(`Finding block ${id} from peers...,dependant on ${dependantId}`);
       const result = await this.objectManager.findObject(
         { id, dependantId },
         (id) => {
-          this.logger.info(`Broadcasting getobject for block ${id} to find block from peers...`);
           this.peerManager.broadcast({
             type: MessageType.GET_OBJECT,
             objectid: id,

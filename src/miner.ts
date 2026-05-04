@@ -1,4 +1,5 @@
 import { parentPort, MessagePort, workerData } from "worker_threads";
+import { performance } from "node:perf_hooks";
 import crypto from "crypto";
 import {
   TARGET,
@@ -8,7 +9,12 @@ import {
   type ChainState,
   BLOCK_REWARD,
 } from "./protocol/types";
-import { agent, MINE_YIELD_EVERY_MS } from "./shared/constants";
+import {
+  agent,
+  ENABLE_MINER_PROFILING,
+  HASHRATE_REPORT_INTERVAL_MS,
+  MINE_YIELD,
+} from "./shared/constants";
 import { hashObject } from "./shared/utils";
 import { blake2s } from "@noble/hashes/blake2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
@@ -61,10 +67,13 @@ async function PoW({ txs, state }: { txs: string[]; state: ChainState }) {
   );
 
   let nonce = BigInt(`0x${crypto.randomBytes(32).toString("hex")}`);
+  let hashes = 0;
+  let lastReport = performance.now();
   const { buf, nonceOffset, created } = buildTemplate(state.tip, txids);
 
   while (isRunning) {
-    if (nonce % BigInt(MINE_YIELD_EVERY_MS) === 0n) {
+    // Yield to event loop every MINE_YIELD_EVERY_MS milliseconds.
+    if (nonce % BigInt(MINE_YIELD) === 0n) {
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
 
@@ -72,6 +81,20 @@ async function PoW({ txs, state }: { txs: string[]; state: ChainState }) {
     buf.write(nonceHex, nonceOffset, "utf8");
 
     const hash = bytesToHex(blake2s(buf));
+    if (ENABLE_MINER_PROFILING) {
+      hashes++;
+      const now = performance.now();
+      const elapsed = now - lastReport;
+      if (elapsed >= HASHRATE_REPORT_INTERVAL_MS) {
+        const hashrate = hashes / (elapsed / 1000);
+        port.postMessage({
+          type: MINER_EVENTS.HASHRATE,
+          payload: { hashrate, height },
+        });
+        hashes = 0;
+        lastReport = performance.now();
+      }
+    }
     if (hash < TARGET) {
       const block = {
         type: ObjectType.BLOCK,

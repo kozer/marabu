@@ -86,6 +86,11 @@ export async function startNode(opts?: NodeOptions): Promise<NodeHandle> {
         );
       }
     });
+    minerController?.onHashrateUpdate((report) => {
+      logger.info(
+        `Miner hashrate update: ${report.hashrate} H/s, current block height ${report.height}`,
+      );
+    });
   }
   try {
     // Do this so we know that the listening socket is properly set up before we run tests.

@@ -84,7 +84,7 @@ export class PeerConnection implements Connection {
     });
 
     this.socket.on("error", async (err) => {
-      this.log.error({ err }, `Socket error for ${this.id}`);
+      this.log.trace({ err }, `Socket error for ${this.id}`);
       await this._ctx.peerManager.reportConnectionFailure(this.id);
       this.onHandleError(new ProtocolError(ErrorCode.INTERNAL_ERROR, "Connection error occurred."));
       this.log.trace(`Connection error for ${this.id}: ${err.message}`);

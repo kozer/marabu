@@ -286,8 +286,14 @@ export type ChainState = {
   height: number;
 };
 
+export type HashRateReport = {
+  hashrate: number;
+  height: number;
+};
+
 export const MINER_EVENTS = {
   RESTART_MINE: "RESTART_MINE",
+  HASHRATE: "HASH_RATE",
   STOP: "STOP",
   ON_BLOCK_MINED: "ON_BLOCK_MINED",
 };
@@ -301,4 +307,5 @@ export type MinerController = {
   restartMine: (txs: string[], state: ChainState) => void;
   stop: () => void;
   onBlockMined: (callback: (block: BlockMessage, coinbaseTx: TransactionMessage) => void) => void;
+  onHashrateUpdate: (callback: (payload: HashRateReport) => void) => void;
 };
