@@ -18,6 +18,7 @@ class UtxoStore implements UtxoStoreInterface {
   private readonly db: Level<string, UtxoRow>;
   private readonly logger: pino.Logger;
   private cache: LRUCache;
+  private pendingFlights: Map<string, Promise<UtxoSnapshot | null>> = new Map();
 
   constructor(logger: pino.Logger, db?: Level<string, UtxoRow>) {
     this.db = db || new Level(`${DEFAULT_DB_PATH}/utxos`, { valueEncoding: "json" });
@@ -57,31 +58,44 @@ class UtxoStore implements UtxoStoreInterface {
       return cached ? this.clone(cached) : null;
     }
 
-    const snapshot: UtxoSnapshot = new Map();
     const prefix = `block:${blockId}:utxo:`;
-
-    try {
-      if (!(await this.db.has(`status:${blockId}`))) {
-        this.cache.put(blockId, null);
-        return null;
-      }
-
-      for await (const [_key, value] of this.db.iterator({
-        gt: prefix,
-        lt: prefix + "\xff",
-      })) {
-        const entry = value as UtxoEntry;
-        snapshot.set(this.key(entry.txid, entry.index), entry);
-      }
-
-      this.cache.put(blockId, snapshot);
-      return this.clone(snapshot);
-    } catch (err) {
-      this.logger.error(`Failed to stream UTXOs for ${blockId}: ${err}`);
-      return null;
+    const existingFlight = this.pendingFlights.get(blockId);
+    if (existingFlight) {
+      return await existingFlight;
     }
+
+    const flightPromise = (async () => {
+      const snapshot: UtxoSnapshot = new Map();
+      try {
+        if (!(await this.db.has(`status:${blockId}`))) {
+          if (!this.cache.has(blockId)) this.cache.put(blockId, null);
+          return null;
+        }
+
+        for await (const [_key, value] of this.db.iterator({
+          gt: prefix,
+          lt: prefix + "\xff",
+        })) {
+          const entry = value as UtxoEntry;
+          snapshot.set(this.key(entry.txid, entry.index), entry);
+        }
+
+        if (!this.cache.has(blockId)) {
+          this.cache.put(blockId, snapshot);
+        }
+        return this.clone(snapshot);
+      } catch (err) {
+        this.logger.error(`Failed to stream UTXOs for ${blockId}: ${err}`);
+        return null;
+      } finally {
+        this.pendingFlights.delete(blockId);
+      }
+    })();
+    this.pendingFlights.set(blockId, flightPromise);
+    return await flightPromise;
   }
   async put(blockId: string, snapshot: UtxoSnapshot): Promise<void> {
+    this.cache.delete(blockId);
     const batch = this.db.batch();
 
     batch.put(`status:${blockId}`, "valid");

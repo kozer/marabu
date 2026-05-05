@@ -96,3 +96,26 @@ export function hashObject(obj: unknown): string {
 
   return bytesToHex(blake2s(Buffer.from(canonical, "utf8")));
 }
+
+export function createThrottle(delayMs: number) {
+  let lastCall = 0;
+  let timer: NodeJS.Timeout | null = null;
+  return (fn: () => Promise<void> | void) => {
+    const now = Date.now();
+    const remaining = delayMs - (now - lastCall);
+    if (remaining <= 0) {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      lastCall = now;
+      fn();
+    } else if (!timer) {
+      timer = setTimeout(() => {
+        lastCall = Date.now();
+        timer = null;
+        fn();
+      }, remaining);
+    }
+  };
+}

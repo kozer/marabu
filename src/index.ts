@@ -51,7 +51,7 @@ export async function startNode(opts?: NodeOptions): Promise<NodeHandle> {
   const utxoStore = new UtxoStore(logger, utxosDb);
   let minerController = null;
   if (MINER_ENABLED) {
-    minerController = await initMiner();
+    minerController = await initMiner(logger);
   }
   const transactionManager = new TransactionManager(
     objectManager,

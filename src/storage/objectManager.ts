@@ -39,14 +39,30 @@ export interface ObjectManagerInterface {
   close(): Promise<void>;
 }
 
+/*
+The Single-Flight Pattern: Core Concept
+
+Blog: https://1xapi.com/blog/nodejs-cache-stampede-single-flight-pattern-2026
+
+The idea comes from Go's golang.org/x/sync/singleflight package, but it translates directly to async JavaScript using Promise sharing.
+
+When a cache miss occurs:
+	Check if a promise for this key is already in-flight
+	If yes → subscribe to that existing promise (don't start a new one)
+	If no → start the operation, store the promise, broadcast the result to all waiters when it resolves
+*/
+
 class ObjectManager implements ObjectManagerInterface {
   private readonly db: Level;
   pendingFinds: Map<string, PendingWaiter[]> = new Map();
   private requestQueue: RequestQueue;
   private logger: pino.Logger;
-  private objectCache: LRUCache;
+  private objectCache: LRUCache<ObjectData>;
   private heightCache: Map<string, number> = new Map();
   private chainStateCache: ChainState | null = null;
+  private chainStatePromise: Promise<any> | null = null;
+  private pendingObjectFetches: Map<string, Promise<ObjectData>> = new Map();
+  private pendingHeightFetches: Map<string, Promise<number | null>> = new Map();
 
   constructor(logger: pino.Logger, db?: Level) {
     this.db = db || new Level(`${DEFAULT_DB_PATH}/objects`, { valueEncoding: "json" });
@@ -75,26 +91,43 @@ class ObjectManager implements ObjectManagerInterface {
   async getBlockHeight(blockId: string): Promise<number | null> {
     const cached = this.heightCache.get(blockId);
     if (cached !== undefined) return cached === -1 ? null : cached;
+    const existingFetch = this.pendingHeightFetches.get(blockId);
+    if (existingFetch) {
+      return await existingFetch;
+    }
 
+    const fetchPromise = this.db
+      .get(`height:${blockId}`)
+      .then((h) => {
+        const result = parseInt(h, 10);
+        if (isNaN(result)) {
+          this.logger.warn(`Invalid height value for block ${blockId}: ${h}`);
+          this.heightCache.set(blockId, -1);
+          return null;
+        }
+        if (!this.heightCache.has(blockId)) {
+          this.heightCache.set(blockId, result);
+        }
+        return result;
+      })
+      .catch((err) => {
+        if (err.notFound) {
+          if (!this.heightCache.has(blockId)) {
+            this.heightCache.set(blockId, -1);
+          }
+          return null;
+        }
+        throw err;
+      });
+    this.pendingHeightFetches.set(blockId, fetchPromise);
     try {
-      const h = await this.db.get(`height:${blockId}`);
-      const result = parseInt(h, 10);
-      if (isNaN(result)) {
-        this.logger.warn(`Invalid height value for block ${blockId}: ${h}`);
-        this.heightCache.set(blockId, -1);
-        return null;
-      }
-      this.heightCache.set(blockId, result);
-      return result;
-    } catch (err: any) {
-      if (err.notFound) {
-        this.heightCache.set(blockId, -1);
-        return null;
-      }
-      throw err;
+      return await fetchPromise;
+    } finally {
+      this.pendingHeightFetches.delete(blockId);
     }
   }
   async putChainState(blockId: string, height: number): Promise<void> {
+    this.chainStatePromise = null;
     const batch = this.db.batch();
     batch.put("meta:tip", blockId);
     batch.put("meta:height", height.toString());
@@ -103,33 +136,58 @@ class ObjectManager implements ObjectManagerInterface {
   }
   async getChainState(): Promise<ChainState> {
     if (this.chainStateCache) return this.chainStateCache;
+    if (this.chainStatePromise) {
+      await this.chainStatePromise;
+      // At this point, the promise has resolved and the cache should be populated
+      return this.chainStateCache as unknown as ChainState;
+    }
 
-    const [tipResult, heightResult] = await Promise.allSettled([
-      this.db.get("meta:tip"),
-      this.db.get("meta:height"),
-    ]);
+    try {
+      this.chainStatePromise = Promise.allSettled([
+        this.db.get("meta:tip"),
+        this.db.get("meta:height"),
+      ]);
+      const [tipResult, heightResult] = await this.chainStatePromise;
 
-    const tipId = tipResult.status === "fulfilled" ? (tipResult.value as string) : "";
-    const height =
-      heightResult.status === "fulfilled" ? parseInt(heightResult.value as string, 10) : -1;
+      const tipId = tipResult.status === "fulfilled" ? (tipResult.value as string) : "";
+      const height =
+        heightResult.status === "fulfilled" ? parseInt(heightResult.value as string, 10) : -1;
 
-    this.chainStateCache = {
-      tip: tipId || "",
-      height: isNaN(height) ? -1 : height,
-    };
+      if (!this.chainStateCache) {
+        this.chainStateCache = {
+          tip: tipId || "",
+          height: isNaN(height) ? -1 : height,
+        };
+      }
+    } finally {
+      this.chainStatePromise = null;
+    }
     return this.chainStateCache;
   }
   async get(id: string): Promise<ObjectData> {
     if (this.objectCache.has(id)) {
       return this.objectCache.get(id) as ObjectData;
     }
-    const object = await this.db.get(id);
-    if (object === undefined) {
-      throw new Error(`Object ${id} not found`);
+    const existingFetch = this.pendingObjectFetches.get(id);
+    if (existingFetch) {
+      return await existingFetch;
     }
-    const obj = object as unknown as ObjectData;
-    this.objectCache.put(id, obj);
-    return obj;
+    const fetchPromise = this.db.get(id).then((object) => {
+      try {
+        if (object === undefined) {
+          throw new Error(`Object ${id} not found`);
+        }
+        const obj = object as unknown as ObjectData;
+        if (!this.objectCache.has(id)) {
+          this.objectCache.put(id, obj);
+        }
+        return obj;
+      } finally {
+        this.pendingObjectFetches.delete(id);
+      }
+    });
+    this.pendingObjectFetches.set(id, fetchPromise);
+    return await fetchPromise;
   }
 
   rejectPending(objectId: string, error: ProtocolError | MultiProtocolError): void {
@@ -171,6 +229,10 @@ class ObjectManager implements ObjectManagerInterface {
 
   async put(object: ObjectData, height?: number): Promise<string> {
     const objectId = this.id(object);
+    this.objectCache.delete(objectId);
+    if (height !== undefined) {
+      this.heightCache.delete(objectId);
+    }
 
     const batch = this.db.batch();
     batch.put(objectId, object as any);
@@ -180,13 +242,18 @@ class ObjectManager implements ObjectManagerInterface {
     }
     await batch.write();
     this.objectCache.put(objectId, object);
+    if (height !== undefined) this.heightCache.set(objectId, height);
     this.resolvePending(objectId, object);
 
     return objectId;
   }
   async delete(obj: ObjectData, height?: number): Promise<void> {
-    const batch = this.db.batch();
     const objectId = this.id(obj);
+
+    this.objectCache.delete(objectId);
+    this.heightCache.delete(objectId);
+
+    const batch = this.db.batch();
     batch.del(objectId);
     if (height !== undefined && obj.type === "block") {
       batch.del(`height:${objectId}`);
@@ -204,6 +271,15 @@ class ObjectManager implements ObjectManagerInterface {
 
   async exists(id: string): Promise<boolean> {
     if (this.objectCache.has(id)) return true;
+    if (this.pendingObjectFetches.has(id)) {
+      try {
+        await this.pendingObjectFetches.get(id);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
     return await this.db.has(id);
   }
 

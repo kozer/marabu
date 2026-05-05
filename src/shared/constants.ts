@@ -45,3 +45,4 @@ export const MINER_ENABLED = process.env.MINER_ENABLED === "true";
 export const INBOUND_TIMEOUT_MS = 10 * 1000;
 export const MINE_YIELD = process.env.MINE_YIELD ? Number(process.env.MINE_YIELD) : 50000;
 export const ENABLE_MINER_PROFILING = process.env.ENABLE_MINER_PROFILING === "true";
+export const THROTTLE_MINING_DELAY_MS = 500;

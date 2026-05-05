@@ -131,7 +131,7 @@ export const objectHandler = async (
   managers: ManagerSet,
 ) => {
   const objId = managers.object.id(message.object);
-  connection.log.error(`Received object ${objId} from ${connection.id}`);
+  connection.log.info(`Received object ${objId} from ${connection.id}`);
   if (message.object.type === ObjectType.TRANSACTION) {
     await managers.tx.handleIncoming(message.object);
   } else if (message.object.type === ObjectType.BLOCK) {

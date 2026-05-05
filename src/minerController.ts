@@ -12,6 +12,7 @@ import {
   HASHRATE_REPORT_INTERVAL_MS,
   MINE_CPU_RATIO,
 } from "./shared/constants";
+import type pino from "pino";
 
 const workerPath = path.resolve(
   import.meta.dir,
@@ -23,7 +24,7 @@ const workers: Worker[] = [];
 
 let KEYS_PATH = path.resolve("keys.json");
 
-export const initMiner = async () => {
+export const initMiner = async (logger: pino.Logger) => {
   let hashrateSubscribers: ((payload: HashRateReport) => void)[] = [];
   let blockMinedSubscribers: ((block: any, coinbaseTx: any) => void)[] = [];
 
@@ -98,7 +99,10 @@ export const initMiner = async () => {
       blockMinedSubscribers.push(callback);
     },
     restartMine: (txs: string[], state: ChainState) => {
-      workers.forEach((w) => {
+      workers.forEach((w, i) => {
+        logger.info(
+          `=================== Restarting miner worker ${i} with new template (tip: ${state.tip}, height: ${state.height}, txs: ${txs.length})===================`,
+        );
         try {
           w.postMessage({ type: MINER_EVENTS.RESTART_MINE, data: { txs, state } });
         } catch {}

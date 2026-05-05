@@ -44,6 +44,8 @@ export interface BlockManagerInterface {
 
 class BlockManager implements BlockManagerInterface {
   private chainState: ChainState = { tip: "", height: -1 };
+  private pendingBlockValidations: Map<string, Promise<ValidateResult>> = new Map();
+  private reorgLock: Promise<void> = Promise.resolve();
   constructor(
     private readonly objectManager: ObjectManagerInterface,
     private readonly utxoStore: UtxoStore,
@@ -99,9 +101,22 @@ class BlockManager implements BlockManagerInterface {
       });
       return;
     }
+    if (this.pendingBlockValidations.has(blockId)) {
+      this.logger.trace(`Already validating block ${blockId}, skipping`);
+      return this.pendingBlockValidations.get(blockId)!;
+    }
+    const promise = this.processIncomingBlock(blockId, blockOrBlockId);
+    this.pendingBlockValidations.set(blockId, promise);
+    return promise;
+  }
+
+  private async processIncomingBlock(
+    blockId: string,
+    block: BlockMessage,
+  ): Promise<ValidateResult> {
     try {
-      const result = await this.validateBlock(blockId, blockOrBlockId);
-      await this.storeValidatedBlock(blockId, blockOrBlockId, result);
+      const result = await this.validateBlock(blockId, block);
+      await this.storeValidatedBlock(blockId, block, result);
       this.peerManager.broadcast({
         type: MessageType.IHAVEOBJECT,
         objectid: blockId,
@@ -111,6 +126,8 @@ class BlockManager implements BlockManagerInterface {
       this.logger.error(`Validation failed for block ${blockId} : ${(e as Error).message}`);
       this.objectManager.rejectPending(blockId, e as Error);
       throw e;
+    } finally {
+      this.pendingBlockValidations.delete(blockId);
     }
   }
 
@@ -216,6 +233,39 @@ class BlockManager implements BlockManagerInterface {
     }
   }
 
+  private async traceChains(
+    oldTip: string,
+    newTipId: string,
+    newHeight: number,
+    oldHeight: number,
+  ) {
+    this.logger.error(
+      `Reorging to new chain. Old tip: ${oldTip} at height ${oldHeight}, new tip: ${newTipId} at height ${newHeight}`,
+    );
+
+    let oldPointer = oldTip;
+    let newPointer = newTipId;
+    let currentOldHeight = oldHeight;
+    let currentNewHeight = newHeight;
+
+    const abandonedBlockIds = [];
+    // 1. Go back from the new tip to old tip till we have the same height for both chains.
+    // 2. Loop back both chains together till we find the common ancestor
+    while (currentNewHeight > currentOldHeight) {
+      const block = (await this.objectManager.get(newPointer)) as BlockMessage;
+      newPointer = block.previd!;
+      currentNewHeight--;
+    }
+    while (oldPointer !== newPointer) {
+      abandonedBlockIds.push(oldPointer);
+      const oldBlock = (await this.objectManager.get(oldPointer)) as BlockMessage;
+      const newBlock = (await this.objectManager.get(newPointer)) as BlockMessage;
+      oldPointer = oldBlock.previd!;
+      newPointer = newBlock.previd!;
+    }
+    return { commonAncestor: oldPointer, abandonedBlockIds };
+  }
+
   async reorgToNewChain(
     blockId: string,
     block: BlockMessage,
@@ -223,77 +273,42 @@ class BlockManager implements BlockManagerInterface {
     oldTip: string,
     oldHeight: number,
   ): Promise<void> {
-    await this.objectManager.putChainState(blockId, result.height);
-    if (block.previd === oldTip || oldHeight === -1 || block.previd === null) {
-      // This means the new block extends our current chain, or we are at genesis, so we don't need to find common accestor.
-      await this.transactionManager.reconcileMempool(result.utxoSet, []);
-    } else {
-      // This means we were on a fork, but the new block does not extend our current chain, so we need to reorg to the new fork.
-      let oldRunningTip = oldTip;
-      let currentOldHeight = oldHeight;
+    let abandonedTxs: TransactionMessage[] = [];
 
-      let newRunningTip = blockId;
-      let currentNewHeight = result.height;
-
-      let currentNewBlock = block; // The block passed into the function
-      let currentOldBlock = null;
-      const abandonedTxs = [];
-      this.logger.error(
-        `Reorging to new chain. Old tip: ${oldTip} at height ${oldHeight}, new tip: ${blockId} at height ${result.height}`,
+    if (block.previd !== oldTip && oldHeight !== -1 && block.previd !== null) {
+      const { abandonedBlockIds } = await this.traceChains(
+        oldTip,
+        blockId,
+        result.height,
+        oldHeight,
       );
 
-      // 1. Go back from the new tip to old tip till we have the same height for both chains.
-      // 2. Loop back both chains together till we find the common ancestor
-      // 3. Along the way, we collect all transactions from the blocks in the old chain that are not in the new chain to be removed from mempool.
-      while (oldRunningTip !== newRunningTip) {
-        if (currentNewHeight > currentOldHeight) {
-          newRunningTip = currentNewBlock.previd!;
-          // Fetch the prev block in the new chain till we end up to same height as old chain
-          currentNewBlock = (await this.objectManager.get(newRunningTip)) as BlockMessage;
-          currentNewHeight--;
-          this.logger.info(
-            `Stepping back on new chain to height ${currentNewHeight} (Block: ${newRunningTip})`,
-          );
-          continue;
-        }
-
-        currentOldBlock = (await this.objectManager.get(oldRunningTip)) as BlockMessage;
-        this.logger.info(
-          `Stepping back on old chain to height ${currentOldHeight} (Block: ${oldRunningTip})`,
-        );
-
-        abandonedTxs.push(...(await this.getBlockTransactions(currentOldBlock)));
-        this.logger.info(
-          `Collected transactions from old block ${oldRunningTip} to be removed from mempool if we reorg to new chain. Number of transactions: ${abandonedTxs.length}`,
-        );
-
-        if (currentOldBlock.previd === currentNewBlock.previd) {
-          // We have found the common ancestor. We stop.
-          this.logger.info(
-            `Common ancestor found at block ${currentOldBlock.previd} at height ${currentOldHeight - 1}`,
-          );
-          break;
-        }
-
-        oldRunningTip = currentOldBlock.previd!;
-        newRunningTip = currentNewBlock.previd!;
-        this.logger.info(
-          `Stepping back on both chains. Old chain at height ${currentOldHeight - 1} (Block: ${oldRunningTip}), new chain at height ${currentNewHeight - 1} (Block: ${newRunningTip})`,
-        );
-        currentNewBlock = (await this.objectManager.get(newRunningTip)) as BlockMessage;
-        this.logger.info(
-          `Fetched new block ${newRunningTip} at height ${currentNewHeight - 1} during reorg`,
-        );
-      }
-      // We want to remove transactions from the common ancestor to the old tip, so we reverse the order of the collected transactions to be removed from mempool.
-      abandonedTxs.reverse();
-      await this.transactionManager.reconcileMempool(result.utxoSet, abandonedTxs);
+      abandonedTxs = (
+        await Promise.all(
+          abandonedBlockIds.map(async (id) => {
+            const b = (await this.objectManager.get(id)) as BlockMessage;
+            return this.getBlockTransactions(b);
+          }),
+        )
+      ).flat();
     }
-    this.logger.info(`Chain updated to height ${result.height} (Tip: ${blockId})`);
-    this.chainState = {
-      tip: blockId,
-      height: result.height,
-    };
+
+    const promise = new Promise<void>((res, rej) => {
+      this.reorgLock = this.reorgLock.then(async () => {
+        try {
+          this.logger.info(`Updating chain tip to ${blockId} at height ${result.height}`);
+          await this.objectManager.putChainState(blockId, result.height);
+          await this.transactionManager.reconcileMempool(result.utxoSet, abandonedTxs.reverse());
+          this.chainState = { tip: blockId, height: result.height };
+          res();
+        } catch (err) {
+          this.logger.error(`Critical error during chain update: ${(err as Error).message}`);
+          rej(err as Error);
+        }
+      });
+    });
+
+    return promise;
   }
 
   private async seedGenesis(genBlock: any, genesisId: string): Promise<void> {
