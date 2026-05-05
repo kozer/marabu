@@ -122,11 +122,11 @@ class BlockManager implements BlockManagerInterface {
     return new Map((await this.utxoStore.get(blockId)) ?? []);
   }
 
-  private async findBlock(id: string, dependantId?: string): Promise<BlockMessage> {
+  private async findBlock(id: string, child?: string): Promise<BlockMessage> {
     try {
-      this.logger.trace(`Finding block ${id} from peers...,dependant on ${dependantId}`);
+      this.logger.trace(`Finding block ${id} from peers...,dependant on ${child}`);
       const result = await this.objectManager.findObject(
-        { id, dependantId },
+        { id, child },
         (id) => {
           this.peerManager.broadcast({
             type: MessageType.GET_OBJECT,

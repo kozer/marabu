@@ -9,7 +9,7 @@ import { MultiProtocolError } from "@/protocol/error";
 import { hashObject } from "@/shared/utils";
 
 export type PendingWaiter = {
-  dependants: string[];
+  child: string;
   timeoutFn: () => void;
   resolve: (value: ObjectData) => void;
   reject: (error: ProtocolError | MultiProtocolError) => void;
@@ -18,7 +18,7 @@ export type PendingWaiter = {
 
 export type WaiterData = {
   id: string;
-  dependantId?: string;
+  child?: string;
 };
 export interface ObjectManagerInterface {
   id(obj: unknown): string;
@@ -55,20 +55,19 @@ class ObjectManager implements ObjectManagerInterface {
     this.objectCache = new LRUCache(10000);
   }
 
-  private refreshPendingChain(objectId: string, visited = new Set<string>()) {
-    if (visited.has(objectId)) {
-      return;
-    }
-    visited.add(objectId);
-    const waiters = this.pendingFinds.get(objectId);
-    if (!waiters) return;
-    for (const w of waiters) {
-      this.logger.info(`Refreshing pending find timeout for object ${objectId}`);
-      clearTimeout(w.timeoutId);
-      w.timeoutId = setTimeout(w.timeoutFn, FIND_TIMEOUT_MS);
-      for (const depId of w.dependants) {
-        this.logger.info(`Refreshing pending find for dependant ${depId} of object ${objectId}`);
-        this.refreshPendingChain(depId, visited);
+  private refreshPendingChain(objectId: string) {
+    const visited = new Set<string>();
+    const stack = [objectId];
+    while (stack.length > 0) {
+      const currentId = stack.pop()!;
+      if (!currentId || visited.has(currentId)) continue;
+      visited.add(currentId);
+      const waiters = this.pendingFinds.get(currentId);
+      if (!waiters) continue;
+      for (const w of waiters) {
+        clearTimeout(w.timeoutId);
+        w.timeoutId = setTimeout(w.timeoutFn, FIND_TIMEOUT_MS);
+        if (w.child) stack.push(w.child);
       }
     }
   }
@@ -213,7 +212,7 @@ class ObjectManager implements ObjectManagerInterface {
   }
 
   async findObject(
-    { id: objectId, dependantId }: WaiterData,
+    { id: objectId, child }: WaiterData,
     requestObject: (id: string) => void,
     timeout = FIND_TIMEOUT_MS,
   ): Promise<ObjectData> {
@@ -236,8 +235,8 @@ class ObjectManager implements ObjectManagerInterface {
         reject(new Error(`Timeout waiting for object ${objectId}`));
       };
       waiter = {
+        child: "",
         timeoutFn,
-        dependants: [],
         resolve: (value) => {
           resolve(value);
         },
@@ -247,8 +246,8 @@ class ObjectManager implements ObjectManagerInterface {
         timeoutId: setTimeout(timeoutFn, timeout),
       };
 
-      if (dependantId) {
-        waiter.dependants.push(dependantId);
+      if (child) {
+        waiter.child = child || "";
       }
 
       if (waiters.length === 0) {
@@ -257,8 +256,8 @@ class ObjectManager implements ObjectManagerInterface {
       } else {
         waiters.push(waiter);
         this.pendingFinds.set(objectId, waiters);
-        this.refreshPendingChain(objectId, new Set());
       }
+      this.refreshPendingChain(objectId);
     });
   }
 }
