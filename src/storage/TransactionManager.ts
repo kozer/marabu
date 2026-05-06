@@ -23,7 +23,7 @@ import {
 } from "@/protocol/transaction.validator";
 import ProtocolError from "@/protocol/error";
 import type { PeerManager } from "@/peers/peerManager";
-import { createThrottle } from "@/shared/utils";
+import { createThrottle, topologicalSort } from "@/shared/utils";
 import { THROTTLE_MINING_DELAY_MS } from "@/shared/constants";
 
 const restartMineDebounced = createThrottle(THROTTLE_MINING_DELAY_MS);
@@ -47,9 +47,17 @@ export class TransactionManager {
   async initializeMempool(state: UtxoSnapshot | null, txs: TransactionMessage[]): Promise<void> {
     this.mempoolState = state ? new Map(state) : new Map();
     this.mempoolTxs.clear();
+    const mempool = new Map(this.mempoolState);
     for (const tx of txs) {
-      this.checkAndAddToMempool(tx, this.mempoolState);
+      try {
+        this.checkAndAddToMempool(tx, mempool);
+      } catch (err) {
+        this.logger.warn(
+          `Skipping mempool transaction ${this.objectManager.id(tx)} during initialization: ${(err as Error).message}`,
+        );
+      }
     }
+    this.mempoolState = mempool;
     this.logger.trace(
       `Initialized mempool with transactions: ${[...this.mempoolTxs.keys()].join(", ")}, mempool state has ${this.mempoolState.size} UTXOs`,
     );
@@ -70,7 +78,9 @@ export class TransactionManager {
   }
 
   async getMempool(): Promise<string[]> {
-    return [...this.mempoolTxs.keys()];
+    const txs = [...this.mempoolTxs.values()];
+    const sorted = topologicalSort(txs);
+    return sorted.map((tx) => this.objectManager.id(tx));
   }
 
   async close(): Promise<void> {
@@ -107,12 +117,14 @@ export class TransactionManager {
       const resultPromise = new Promise<void>((resolve, reject) => {
         this.mempoolLock = this.mempoolLock
           .then(async () => {
+            const mempool = new Map(this.mempoolState);
             try {
               // There is a case where the incoming tx is part of a block ( older than our current height ) that we have not seen yet ( part of a fork )
               // so we might not have the inputs of the tx in our object manager yet.
               // In that case, should store the tx but the check against mempool UTXO set will fail and we will not add it to the mempool until we receive the block that contains it and apply it to the UTXO set,
               // at which point the tx will become valid and added to the mempool.
-              await this.checkAndAddToMempool(tx, this.mempoolState);
+              await this.checkAndAddToMempool(tx, mempool);
+              this.mempoolState = mempool;
               resolve();
             } catch (err) {
               this.logger.warn(`Tx ${txId} failed mempool: ${(err as Error).message}`);

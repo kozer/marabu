@@ -29,6 +29,7 @@ import {
 } from "@/protocol/block.validator";
 import type { TransactionManager } from "./TransactionManager";
 import { FIND_TIMEOUT_MS } from "@/shared/constants";
+import { topologicalSort } from "@/shared/utils";
 
 export interface BlockManagerInterface {
   getUtxoSet(blockId: string | null): Promise<UtxoSnapshot | null>;
@@ -513,7 +514,7 @@ class BlockManager implements BlockManagerInterface {
           tx !== null && (tx as any).type === ObjectType.TRANSACTION,
       );
       this.logger.info(`Loaded ${txs.length}/${savedTxids.length} from saved txids`);
-      return txs;
+      return topologicalSort(txs);
     }
 
     // Fallback: full object scan. Ugly and expensive but it's ok for now since block and tx size is small
@@ -533,7 +534,7 @@ class BlockManager implements BlockManagerInterface {
     }
 
     const pending = allTxIds.filter((t) => !blockTxIds.has(t.key)).map((t) => t.value);
-    return pending as unknown as TransactionMessage[];
+    return topologicalSort(pending as unknown as TransactionMessage[]);
   }
 }
 export default BlockManager;

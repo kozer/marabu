@@ -3,6 +3,7 @@ import { isIP } from "node:net";
 import canonicalize from "canonicalize";
 import { SEPARATOR } from "./constants";
 import type { ValidMessage } from "@/protocol/types";
+import type { TransactionMessage } from "@/protocol/types";
 import ProtocolError from "@/protocol/error";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { blake2s } from "@noble/hashes/blake2.js";
@@ -118,4 +119,61 @@ export function createThrottle(delayMs: number) {
       }, remaining);
     }
   };
+}
+
+export function topologicalSort(txs: TransactionMessage[]): TransactionMessage[] {
+  //https://medium.com/@konduruharish/topological-sort-in-typescript-and-c-6d5ecc4bad95
+  const sortedTxs: TransactionMessage[] = [];
+  const txMap = new Map<string, TransactionMessage>(txs.map((tx) => [hashObject(tx), tx]));
+  const adjList = new Map<string, string[]>();
+  const inDegree = new Map<string, number>();
+  txs.forEach((tx) => inDegree.set(hashObject(tx), 0));
+
+  for (let tx of txs) {
+    const txHash = hashObject(tx);
+    for (let input of tx?.inputs ?? []) {
+      const outpointId = input.outpoint.txid;
+      if (!txMap.has(outpointId)) {
+        continue;
+      }
+      if (!adjList.has(outpointId)) {
+        adjList.set(outpointId, []);
+      }
+      const item = adjList.get(outpointId)!;
+      item.push(txHash);
+      adjList.set(outpointId, item);
+    }
+  }
+  for (let edge of adjList.values().flatMap((x) => x)) {
+    if (inDegree.has(edge)) {
+      inDegree.set(edge, inDegree.get(edge)! + 1);
+    } else {
+      inDegree.set(edge, 1);
+    }
+  }
+
+  let queue: string[] = [];
+  for (let [vertex, degree] of inDegree) {
+    if (degree == 0) {
+      // Add vertices with inDegree 0 to the queue
+      queue.push(vertex);
+    }
+  }
+  while (queue.length > 0) {
+    let current = queue.shift()!;
+    sortedTxs.push(txMap.get(current)!);
+    if (adjList.has(current)) {
+      for (let edge of adjList.get(current)!) {
+        const degree = inDegree.get(edge);
+        if (degree && degree! > 0) {
+          inDegree.set(edge, degree - 1);
+          if (degree - 1 == 0) {
+            queue.push(edge);
+          }
+        }
+      }
+    }
+  }
+
+  return sortedTxs;
 }
