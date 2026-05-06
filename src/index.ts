@@ -156,10 +156,12 @@ export async function startNode(opts?: NodeOptions): Promise<NodeHandle> {
     logger.info("Shutdown complete.");
   };
 
-  process.on("SIGINT", async function () {
+  const shutdownGracefuly = async () => {
     await shutdown();
     process.exit(0);
-  });
+  };
+  process.on("SIGINT", shutdownGracefuly);
+  process.on("SIGTERM", shutdownGracefuly);
 
   return {
     shutdown,
