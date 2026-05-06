@@ -54,6 +54,11 @@ export class PeerConnection implements Connection {
     this.socket.end();
   }
 
+  destroy(): void {
+    if (this.socket.destroyed) return;
+    this.socket.destroy();
+  }
+
   private onConnect(): void {
     if (this.direction === ConnectionDirection.INBOUND) {
       this._ctx.peerManager.registerInboundConnection(this);

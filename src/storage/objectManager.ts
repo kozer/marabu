@@ -1,5 +1,5 @@
 import { Level } from "level";
-import type { ChainState, ObjectData } from "@/protocol/types";
+import { type ChainState, type ObjectData } from "@/protocol/types";
 import { DEFAULT_DB_PATH, FIND_TIMEOUT_MS } from "@/shared/constants";
 import LRUCache from "@/shared/lruCache";
 import RequestQueue from "./requestQueue";
@@ -36,6 +36,9 @@ export interface ObjectManagerInterface {
   delete(obj: ObjectData, height?: number): Promise<void>;
   resolvePending(objectId: string, object: ObjectData): void;
   rejectPending(objectId: string, error: Error): void;
+  getAllObjects(): AsyncIterable<[string, any]>;
+  putMeta(key: string, value: unknown): Promise<void>;
+  getMeta(key: string): Promise<unknown | undefined>;
   close(): Promise<void>;
 }
 
@@ -69,6 +72,18 @@ class ObjectManager implements ObjectManagerInterface {
     this.logger = logger;
     this.requestQueue = new RequestQueue(logger);
     this.objectCache = new LRUCache(10000);
+  }
+
+  getAllObjects(): AsyncIterable<[string, any]> {
+    return this.db.iterator();
+  }
+
+  async putMeta(key: string, value: unknown): Promise<void> {
+    await this.db.put(`meta:${key}`, value as string);
+  }
+
+  async getMeta(key: string): Promise<unknown | undefined> {
+    return await this.db.get(`meta:${key}`);
   }
 
   private refreshPendingChain(objectId: string) {

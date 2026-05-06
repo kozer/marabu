@@ -452,4 +452,12 @@ export class PeerManager {
       peer.send(msg);
     }
   }
+
+  close(): void {
+    this.connectionRegistry.closeAll();
+  }
+
+  destroy(): void {
+    this.connectionRegistry.destroyAll();
+  }
 }

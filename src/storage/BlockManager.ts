@@ -61,22 +61,17 @@ class BlockManager implements BlockManagerInterface {
   async init(genBlock?: any, genesisId?: string): Promise<void> {
     this.chainState = await this.objectManager.getChainState();
 
-    if (this.chainState.height > 0) {
-      this.logger.info(
-        `Resumed chain at height ${this.chainState.height} (Tip: ${this.chainState.tip})`,
-      );
-    } else if (genBlock && genesisId) {
+    if (genBlock && genesisId) {
       this.logger.info("Fresh database detected. Seeding provided Genesis...");
       await this.seedGenesis(genBlock, genesisId);
     }
     if (this.chainState.height !== -1) {
-      const tipBlock = (await this.objectManager.get(this.chainState.tip)) as BlockMessage;
-      this.logger.info(
-        `Initializing mempool with UTXO set and transactions from current tip block ${this.chainState.tip}...`,
-      );
+      this.logger.info(`Initializing mempool with UTXO set from tip ${this.chainState.tip}`);
+      const pendingTxs = await this.getPendingTxs();
+      this.logger.info(`Initializing mempool with ${pendingTxs.length} pending transactions`);
       await this.transactionManager.initializeMempool(
         await this.getUtxoSet(this.chainState.tip),
-        await this.getBlockTransactions(tipBlock),
+        pendingTxs,
       );
     }
   }
@@ -332,6 +327,7 @@ class BlockManager implements BlockManagerInterface {
   }
 
   async close(): Promise<void> {
+    await this.transactionManager.close();
     await this.objectManager.close();
     await this.utxoStore.close();
   }
@@ -504,6 +500,40 @@ class BlockManager implements BlockManagerInterface {
       }
       throw new Error(`unexpected error during block validation: ${(e as Error).message}`);
     }
+  }
+
+  private async getPendingTxs(): Promise<TransactionMessage[]> {
+    const savedTxids = (await this.objectManager.getMeta("mempoolTxids")) as string[] | undefined;
+    if (savedTxids !== undefined) {
+      this.logger.info(`Loading ${savedTxids.length} saved mempool txids`);
+      const txs = (
+        await Promise.all(savedTxids.map((id) => this.objectManager.get(id).catch(() => null)))
+      ).filter(
+        (tx): tx is TransactionMessage =>
+          tx !== null && (tx as any).type === ObjectType.TRANSACTION,
+      );
+      this.logger.info(`Loaded ${txs.length}/${savedTxids.length} from saved txids`);
+      return txs;
+    }
+
+    // Fallback: full object scan. Ugly and expensive but it's ok for now since block and tx size is small
+    this.logger.info("No saved mempool state, scanning all objects");
+    const blockTxIds = new Set();
+    const allTxIds = [];
+
+    for await (const entry of this.objectManager.getAllObjects()) {
+      const [key, value]: [string, any] = entry;
+      if (key.startsWith("meta:") || key.startsWith("height:")) continue;
+      if (value && value.type === ObjectType.BLOCK && value.txids) {
+        for (const txid of value.txids) blockTxIds.add(txid);
+      }
+      if (value && value.type === ObjectType.TRANSACTION) {
+        allTxIds.push({ key, value });
+      }
+    }
+
+    const pending = allTxIds.filter((t) => !blockTxIds.has(t.key)).map((t) => t.value);
+    return pending as unknown as TransactionMessage[];
   }
 }
 export default BlockManager;

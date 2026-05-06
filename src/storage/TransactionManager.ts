@@ -73,6 +73,13 @@ export class TransactionManager {
     return [...this.mempoolTxs.keys()];
   }
 
+  async close(): Promise<void> {
+    await this.mempoolLock;
+    const txids = [...this.mempoolTxs.keys()];
+    await this.objectManager.putMeta("mempoolTxids", txids);
+    this.logger.info(`Saved ${txids.length} mempool txids on close`);
+  }
+
   async handleIncoming(tx: TransactionMessage): Promise<void> {
     if (await this.objectManager.exists(this.objectManager.id(tx))) {
       return;

@@ -71,4 +71,28 @@ export class ConnectionRegistry {
   getConnectedPeersExcept(peerId: string): PeerConnection[] {
     return this.getConnectedPeers().filter((peer) => peer.id !== peerId);
   }
+
+  closeAll(): void {
+    for (const conn of this.inboundConnections.values()) {
+      conn.close();
+    }
+    for (const conn of this.outboundConnections.values()) {
+      conn.close();
+    }
+    this.inboundConnections.clear();
+    this.outboundConnections.clear();
+    this.logger.info("All peer connections closed");
+  }
+
+  destroyAll(): void {
+    for (const conn of this.inboundConnections.values()) {
+      conn.destroy();
+    }
+    for (const conn of this.outboundConnections.values()) {
+      conn.destroy();
+    }
+    this.inboundConnections.clear();
+    this.outboundConnections.clear();
+    this.logger.info("All peer connections destroyed");
+  }
 }

@@ -130,29 +130,39 @@ export async function startNode(opts?: NodeOptions): Promise<NodeHandle> {
   handleOutboundConnection(ctx);
   const discoveryInterval = setInterval(() => handleOutboundConnection(ctx), 60000);
 
+  // TODO: Why shutdown fires twice? Investigate
+  let shuttingDown = false;
+  const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logger.info("Shutting down node...");
+    clearInterval(discoveryInterval);
+
+    try {
+      // 1. Stop accepting new connections
+      await new Promise<void>((resolve, reject) => {
+        server.close((err) => (err ? reject(err) : resolve()));
+      });
+    } catch (e) {
+      logger.error(`Error closing server: ${(e as Error).message}`);
+    }
+
+    // 2. Destroy all peer connections (stop all I/O immediately)
+    peerManager.destroy();
+
+    // 3. Close DBs
+    await blockManager.close();
+
+    logger.info("Shutdown complete.");
+  };
+
+  process.on("SIGINT", async function () {
+    await shutdown();
+    process.exit(0);
+  });
+
   return {
-    shutdown: async () => {
-      logger.info("Shutting down node...");
-      clearInterval(discoveryInterval);
-
-      try {
-        // 1. Stop accepting new connections
-        await new Promise<void>((resolve, reject) => {
-          server.close((err) => (err ? reject(err) : resolve()));
-        });
-
-        // 2. Close the blockManager (which should close its internal stores)
-        await blockManager.close();
-
-        // 3. Explicitly close the DBs created in this scope just to be safe
-        await objectsDb.close();
-        await utxosDb.close();
-
-        logger.info("Shutdown complete.");
-      } catch (e) {
-        logger.error(`Error during shutdown: ${(e as Error).message} ${(e as Error).stack}`);
-      }
-    },
+    shutdown,
   };
 }
 
