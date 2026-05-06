@@ -50,7 +50,7 @@ export class TransactionManager {
     const mempool = new Map(this.mempoolState);
     for (const tx of txs) {
       try {
-        this.checkAndAddToMempool(tx, mempool);
+        await this.checkAndAddToMempool(tx, mempool);
       } catch (err) {
         this.logger.warn(
           `Skipping mempool transaction ${this.objectManager.id(tx)} during initialization: ${(err as Error).message}`,
