@@ -31,7 +31,6 @@ const restartMineDebounced = createThrottle(THROTTLE_MINING_DELAY_MS);
 export class TransactionManager {
   private mempoolTxs: Map<string, TransactionMessage> = new Map();
   private mempoolState: UtxoSnapshot = new Map();
-  private orphans: Map<string, TransactionMessage> = new Map();
   private pendingTxValidations: Map<string, Promise<void>> = new Map();
   /*Promise chain to serialize mempool updates
    * https://www.geeksforgeeks.org/javascript/how-to-execute-multiple-promises-sequentially-in-javascript/
@@ -48,13 +47,11 @@ export class TransactionManager {
   async initializeMempool(state: UtxoSnapshot | null, txs: TransactionMessage[]): Promise<void> {
     this.mempoolState = state ? new Map(state) : new Map();
     this.mempoolTxs.clear();
-    this.orphans.clear();
     const mempool = new Map(this.mempoolState);
     for (const tx of txs) {
       try {
         await this.checkAndAddToMempool(tx, mempool);
       } catch (err) {
-        this.orphans.set(this.objectManager.id(tx), tx);
         this.logger.warn(
           `Skipping mempool transaction ${this.objectManager.id(tx)} during initialization: ${(err as Error).message}`,
         );
@@ -132,13 +129,13 @@ export class TransactionManager {
             resolve();
           })
           .catch((err) => {
-            this.orphans.set(txId, tx);
             reject(err);
           });
       });
       await resultPromise;
-      this.orphans.delete(txId);
-      this.logger.info(`Tx ${txId.slice(0, 12)}... added to mempool (total: ${this.mempoolTxs.size})`);
+      this.logger.info(
+        `Tx ${txId.slice(0, 12)}... added to mempool (total: ${this.mempoolTxs.size})`,
+      );
       restartMineDebounced(async () => {
         this?.miner?.restartMine(await this.getMempool(), await this.objectManager.getChainState());
       });
@@ -173,11 +170,7 @@ export class TransactionManager {
       for (const [, tx] of this.mempoolTxs) {
         txs.push(tx);
       }
-      for (const [, tx] of this.orphans) {
-        txs.push(tx);
-      }
       this.mempoolTxs.clear();
-      this.orphans.clear();
 
       for (const tx of txs) {
         //This is copied from validateBlock function in BlockManager.
@@ -186,7 +179,6 @@ export class TransactionManager {
         try {
           await this.checkAndAddToMempool(tx, newMempoolState);
         } catch (err) {
-          this.orphans.set(this.objectManager.id(tx), tx);
           this.logger.warn(
             `Removing transaction ${this.objectManager.id(tx)} from mempool during reconciliation: ${(err as Error).message}`,
           );

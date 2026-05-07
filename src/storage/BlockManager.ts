@@ -503,44 +503,25 @@ class BlockManager implements BlockManagerInterface {
     }
   }
 
+  //Expensive but of for now.
   private async getPendingTxs(): Promise<TransactionMessage[]> {
-    const savedTxids = (await this.objectManager.getMeta("mempoolTxids")) as string[] | undefined;
-    const mempoolIds = new Set<string>(savedTxids ?? []);
-
-    const blockTxIds = new Set<string>();
-    const allTxs = new Map<string, TransactionMessage>();
-
-    //Expensive. But ok for now.
+    const blockTxIds = new Set();
+    const allTxIds = [];
     for await (const entry of this.objectManager.getAllObjects()) {
       const [key, value]: [string, any] = entry;
       if (key.startsWith("meta:") || key.startsWith("height:")) continue;
-      if (value && value.type === ObjectType.BLOCK && value.txids) {
+      if (key.startsWith("meta:") || key.startsWith("height:")) continue;
+      if (value && value.type === ObjectType.BLOCK) {
         for (const txid of value.txids) blockTxIds.add(txid);
       }
       if (value && value.type === ObjectType.TRANSACTION) {
-        allTxs.set(key, value);
+        allTxIds.push({ key, value });
       }
     }
 
-    const pendingIds = new Set<string>();
-    for (const id of mempoolIds) pendingIds.add(id);
-    // Add orphans
-    for (const [key] of allTxs) {
-      if (!blockTxIds.has(key)) pendingIds.add(key);
-    }
-
-    this.logger.info(
-      `Loading ${pendingIds.size} pending txs (${mempoolIds.size} saved mempool + ${pendingIds.size - mempoolIds.size} orphans)`,
-    );
-
-    const txs = Array.from(pendingIds)
-      .map((id) => {
-        return allTxs.get(id);
-      })
-      .filter((tx) => tx !== undefined);
-
-    this.logger.info(`Loaded ${txs.length}/${pendingIds.size} pending txs`);
-    return topologicalSort(txs);
+    const pending = allTxIds.filter((t) => !blockTxIds.has(t.key)).map((t) => t.value);
+    this.logger.info("Fallback run for mempool txs");
+    return topologicalSort(pending as unknown as TransactionMessage[]);
   }
 }
 export default BlockManager;
