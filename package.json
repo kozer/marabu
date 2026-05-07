@@ -7,7 +7,7 @@
     "clean": "rm -rf dist && echo 'Done.'",
     "start": "bun run build && bun dist/index.js",
     "dev:server": "bun src/index.ts",
-    "build": "bun build src/index.ts src/miner.ts --outdir dist --target bun",
+    "build": "bun build src/index.ts src/miners/miner.ts src/miners/miner-gpu.ts --outdir dist --target bun --external webgpu && cp src/miners/shader.wgsl dist/miners/shader.wgsl",
     "watch:server": "bun --watch run dev:server",
     "watch:client": "bun --watch run dev:client",
     "test": "bun test",
