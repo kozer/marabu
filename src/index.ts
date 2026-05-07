@@ -17,7 +17,7 @@ import BlockManager from "./storage/BlockManager";
 import { GENESIS_BLOCK, GENESIS_BLOCK_ID } from "./protocol/types";
 import { MessageDispatcher } from "./net/MessageDispatcher";
 import { TransactionManager } from "./storage/TransactionManager";
-import { initMiner } from "./minerController";
+import { initMiner } from "./minerFactory";
 
 export type NodeOptions = {
   dbPath?: string;

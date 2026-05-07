@@ -8,18 +8,17 @@ import {
   ObjectType,
   type ChainState,
   BLOCK_REWARD,
-} from "./protocol/types";
+} from "@/protocol/types";
 import {
-  agent,
   ENABLE_MINER_PROFILING,
   HASHRATE_REPORT_INTERVAL_MS,
   MINE_YIELD,
-} from "./shared/constants";
-import { hashObject } from "./shared/utils";
+} from "@/shared/constants";
+import { hashObject } from "@/shared/utils";
 import { blake2s } from "@noble/hashes/blake2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
-import canonicalize from "canonicalize";
-import logger from "./shared/logger";
+import logger from "@/shared/logger";
+import { NONCE_WIDTH, buildTemplate } from "./utils";
 
 if (!parentPort) {
   throw new Error("This script must run as a worker thread.");
@@ -28,29 +27,6 @@ const { pk } = workerData;
 const port: MessagePort = parentPort;
 
 let isRunning = false;
-
-const NONCE_WIDTH = 64;
-const NONCE_PLACEHOLDER = "0".repeat(NONCE_WIDTH);
-
-function buildTemplate(
-  tip: string,
-  txids: string[],
-): { buf: Buffer; nonceOffset: number; created: number } {
-  const created = Math.floor(Date.now() / 1000);
-  const block = {
-    type: ObjectType.BLOCK,
-    T: TARGET,
-    created,
-    miner: agent,
-    nonce: NONCE_PLACEHOLDER,
-    previd: tip,
-    txids,
-  };
-  const canonical = canonicalize(block)!;
-  const buf = Buffer.from(canonical, "utf8");
-  const nonceOffset = canonical.indexOf(NONCE_PLACEHOLDER);
-  return { buf, nonceOffset, created };
-}
 
 async function PoW({ txs, state }: { txs: string[]; state: ChainState }) {
   const height = state.height + 1;
@@ -69,7 +45,7 @@ async function PoW({ txs, state }: { txs: string[]; state: ChainState }) {
   let nonce = BigInt(`0x${crypto.randomBytes(32).toString("hex")}`);
   let hashes = 0;
   let lastReport = performance.now();
-  const { buf, nonceOffset, created } = buildTemplate(state.tip, txids);
+  const { buf, nonceOffset, block } = buildTemplate(state.tip, txids);
 
   while (isRunning) {
     // Yield to event loop every MINE_YIELD_EVERY_MS milliseconds.
@@ -96,15 +72,7 @@ async function PoW({ txs, state }: { txs: string[]; state: ChainState }) {
       }
     }
     if (hash < TARGET) {
-      const block = {
-        type: ObjectType.BLOCK,
-        T: TARGET,
-        created,
-        miner: agent,
-        nonce: nonceHex,
-        previd: state.tip,
-        txids,
-      };
+      block.nonce = nonceHex;
       logger.error(
         `====================== Mined block ${height} | nonce: ${nonceHex.slice(0, 16)}... | hash: ${hash} ======================`,
       );
