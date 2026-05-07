@@ -11,7 +11,7 @@ export async function parseMessage(
   msg: string,
   ctx: ConnectedPeerContext,
 ): Promise<ValidMessage | null> {
-  ctx.logger.info(`Message to parse ${msg.slice(0, 400)}...`);
+  ctx.logger.trace(`Message to parse ${msg.slice(0, 400)}...`);
   let message;
   try {
     message = JSON.parse(msg);

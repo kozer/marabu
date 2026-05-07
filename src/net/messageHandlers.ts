@@ -16,15 +16,16 @@ import type {
   GetObjectMessage,
   ObjectMessage,
   ChainTipMessage,
+  BlockMessage,
 } from "@/protocol/types";
 import type { ManagerSet } from "./MessageDispatcher";
 
 export const helloHandler = async (message: HelloMessage, connection: Connection) => {
-  connection.log.info(`Received HELLO message from ${message.agent} v${message.version}`);
+  connection.log.trace(`Received HELLO message from ${message.agent} v${message.version}`);
 };
 
 export const textHandler = async (message: TextMessage, connection: Connection) => {
-  connection.log.info(`Received TEXT message: ${message.text}`);
+  connection.log.trace(`Received TEXT message: ${message.text}`);
 };
 
 export const getPeersHandler = async (
@@ -32,7 +33,7 @@ export const getPeersHandler = async (
   connection: Connection,
   managers: ManagerSet,
 ) => {
-  connection.log.info(`Received GET_PEERS message from ${connection.id}`);
+  connection.log.trace(`Received GET_PEERS message from ${connection.id}`);
   connection.send({
     type: MessageType.PEERS,
     peers: managers.peer.getPeersForAdvertisement(),
@@ -56,7 +57,9 @@ export const peersHandler = async (
 };
 
 export const errorHandler = async (message: ErrorMessage, connection: Connection) => {
-  connection.log.error(`Received error from client: ${message.name} - ${message.description}`);
+  connection.log.error(
+    `Received error from client: ${message.name}  ${(message.description || "").slice(0, 10)}`,
+  );
 };
 
 export const getMempoolHandler = async (
@@ -131,10 +134,14 @@ export const objectHandler = async (
   managers: ManagerSet,
 ) => {
   const objId = managers.object.id(message.object);
-  connection.log.info(`Received object ${objId} from ${connection.id}`);
-  if (message.object.type === ObjectType.TRANSACTION) {
+  const type = message.object.type;
+  if (type === ObjectType.TRANSACTION) {
+    connection.log.info(`Received tx ${objId.slice(0, 12)}... from ${connection.id}`);
     await managers.tx.handleIncoming(message.object);
-  } else if (message.object.type === ObjectType.BLOCK) {
+  } else if (type === ObjectType.BLOCK) {
+    connection.log.info(
+      `Received blk ${objId.slice(0, 12)}... prev=${(message.object as BlockMessage).previd?.slice(0, 12) || "genesis"} from ${connection.id}`,
+    );
     await managers.block.handleIncoming(message.object);
   }
 };

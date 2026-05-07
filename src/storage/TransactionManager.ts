@@ -31,6 +31,7 @@ const restartMineDebounced = createThrottle(THROTTLE_MINING_DELAY_MS);
 export class TransactionManager {
   private mempoolTxs: Map<string, TransactionMessage> = new Map();
   private mempoolState: UtxoSnapshot = new Map();
+  private orphans: Map<string, TransactionMessage> = new Map();
   private pendingTxValidations: Map<string, Promise<void>> = new Map();
   /*Promise chain to serialize mempool updates
    * https://www.geeksforgeeks.org/javascript/how-to-execute-multiple-promises-sequentially-in-javascript/
@@ -47,19 +48,21 @@ export class TransactionManager {
   async initializeMempool(state: UtxoSnapshot | null, txs: TransactionMessage[]): Promise<void> {
     this.mempoolState = state ? new Map(state) : new Map();
     this.mempoolTxs.clear();
+    this.orphans.clear();
     const mempool = new Map(this.mempoolState);
     for (const tx of txs) {
       try {
         await this.checkAndAddToMempool(tx, mempool);
       } catch (err) {
+        this.orphans.set(this.objectManager.id(tx), tx);
         this.logger.warn(
           `Skipping mempool transaction ${this.objectManager.id(tx)} during initialization: ${(err as Error).message}`,
         );
       }
     }
     this.mempoolState = mempool;
-    this.logger.trace(
-      `Initialized mempool with transactions: ${[...this.mempoolTxs.keys()].join(", ")}, mempool state has ${this.mempoolState.size} UTXOs`,
+    this.logger.info(
+      `Initialized mempool: ${this.mempoolTxs.size} txs, UTXO set has ${this.mempoolState.size} entries`,
     );
     restartMineDebounced(async () => {
       this?.miner?.restartMine(await this.getMempool(), await this.objectManager.getChainState());
@@ -91,9 +94,6 @@ export class TransactionManager {
   }
 
   async handleIncoming(tx: TransactionMessage): Promise<void> {
-    if (await this.objectManager.exists(this.objectManager.id(tx))) {
-      return;
-    }
     let pendingValidation = this.pendingTxValidations.get(this.objectManager.id(tx));
     if (pendingValidation) {
       return pendingValidation;
@@ -107,36 +107,38 @@ export class TransactionManager {
   private async processIncomingTx(tx: TransactionMessage): Promise<void> {
     const txId = this.objectManager.id(tx);
     try {
-      if (isCoinbaseCandidate(tx)) {
-        // For coinbase transactions, we only do basic format checks since they are not fully valid until included in a block and validated as part of that block.
-        checkCoinbaseFormat(tx);
-      } else {
-        await this.validateTx(tx);
+      if (!(await this.objectManager.exists(txId))) {
+        if (isCoinbaseCandidate(tx)) {
+          checkCoinbaseFormat(tx);
+        } else {
+          await this.validateTx(tx);
+        }
+        await this.objectManager.put(tx);
       }
-      await this.objectManager.put(tx);
+      if (this.mempoolTxs.has(txId)) {
+        this.peerManager.broadcast({ type: MessageType.IHAVEOBJECT, objectid: txId });
+        return;
+      }
       const resultPromise = new Promise<void>((resolve, reject) => {
         this.mempoolLock = this.mempoolLock
           .then(async () => {
+            // There is a case where the incoming tx is part of a block ( older than our current height ) that we have not seen yet ( part of a fork )
+            // so we might not have the inputs of the tx in our object manager yet.
+            // In that case, should store the tx but the check against mempool UTXO set will fail and we will not add it to the mempool until we receive the block that contains it and apply it to the UTXO set,
+            // at which point the tx will become valid and added to the mempoo
             const mempool = new Map(this.mempoolState);
-            try {
-              // There is a case where the incoming tx is part of a block ( older than our current height ) that we have not seen yet ( part of a fork )
-              // so we might not have the inputs of the tx in our object manager yet.
-              // In that case, should store the tx but the check against mempool UTXO set will fail and we will not add it to the mempool until we receive the block that contains it and apply it to the UTXO set,
-              // at which point the tx will become valid and added to the mempool.
-              await this.checkAndAddToMempool(tx, mempool);
-              this.mempoolState = mempool;
-              resolve();
-            } catch (err) {
-              this.logger.warn(`Tx ${txId} failed mempool: ${(err as Error).message}`);
-              reject(err);
-            }
+            await this.checkAndAddToMempool(tx, mempool);
+            this.mempoolState = mempool;
+            resolve();
           })
           .catch((err) => {
-            this.logger.error("System lock failure", err);
+            this.orphans.set(txId, tx);
+            reject(err);
           });
       });
       await resultPromise;
-      this.logger.trace(`Current mempool transactions: ${[...this.mempoolTxs.keys()].join(", ")}`);
+      this.orphans.delete(txId);
+      this.logger.info(`Tx ${txId.slice(0, 12)}... added to mempool (total: ${this.mempoolTxs.size})`);
       restartMineDebounced(async () => {
         this?.miner?.restartMine(await this.getMempool(), await this.objectManager.getChainState());
       });
@@ -160,8 +162,8 @@ export class TransactionManager {
   async reconcileMempool(state: UtxoSnapshot, blockTxs: TransactionMessage[]): Promise<void> {
     this.mempoolLock = this.mempoolLock.then(async () => {
       const newMempoolState = new Map(state);
-      this.logger.trace(
-        `Old mempool transactions: ${[...this.mempoolTxs.entries()].join(", ")}, new mempool state has ${newMempoolState.size} UTXOs`,
+      this.logger.info(
+        `Reconciling mempool: old mempool ${this.mempoolTxs.size} txs, new UTXO set has ${newMempoolState.size} UTXOs`,
       );
       const txs = [];
 
@@ -171,7 +173,11 @@ export class TransactionManager {
       for (const [, tx] of this.mempoolTxs) {
         txs.push(tx);
       }
+      for (const [, tx] of this.orphans) {
+        txs.push(tx);
+      }
       this.mempoolTxs.clear();
+      this.orphans.clear();
 
       for (const tx of txs) {
         //This is copied from validateBlock function in BlockManager.
@@ -180,6 +186,7 @@ export class TransactionManager {
         try {
           await this.checkAndAddToMempool(tx, newMempoolState);
         } catch (err) {
+          this.orphans.set(this.objectManager.id(tx), tx);
           this.logger.warn(
             `Removing transaction ${this.objectManager.id(tx)} from mempool during reconciliation: ${(err as Error).message}`,
           );
@@ -189,9 +196,7 @@ export class TransactionManager {
       restartMineDebounced(async () => {
         this?.miner?.restartMine(await this.getMempool(), await this.objectManager.getChainState());
       });
-      this.logger.trace(
-        `Reconciled mempool transactions: ${[...this.mempoolTxs.keys()].join(", ")}`,
-      );
+      this.logger.info(`Reconciled mempool: ${this.mempoolTxs.size} txs`);
     });
     await this.mempoolLock;
   }

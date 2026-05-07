@@ -80,7 +80,7 @@ export class PeerConnection implements Connection {
       this.handleData(data.toString());
     });
     this.socket.on("close", () => {
-      this.log.info(`Socket closed for ${this.id}`);
+      this.log.trace(`Socket closed for ${this.id}`);
       this._ctx.peerManager.unregisterConnection(this.id);
     });
 
@@ -97,7 +97,7 @@ export class PeerConnection implements Connection {
     });
 
     this.socket.on("timeout", async () => {
-      this.log.warn(`Connection timed out for ${this.id} due to inactivity.`);
+      this.log.trace(`Connection timed out for ${this.id} due to inactivity.`);
       await this._ctx.peerManager.reportConnectionFailure(this.id);
       this.onHandleError(
         new ProtocolError(ErrorCode.INTERNAL_ERROR, "Connection timed out due to inactivity."),

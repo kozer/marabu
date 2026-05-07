@@ -8,6 +8,7 @@ const logger = {
   error: (..._args: any[]) => {},
   debug: (..._args: any[]) => {},
   warn: (..._args: any[]) => {},
+  trace: (..._args: any[]) => {},
 };
 
 describe("PeerManager", () => {
@@ -21,10 +22,7 @@ describe("PeerManager", () => {
   });
 
   test("caps accepted peers from a single source", async () => {
-    const peers = Array.from(
-      { length: 80 },
-      (_, index) => `203.0.113.${index + 1}:18018`,
-    );
+    const peers = Array.from({ length: 80 }, (_, index) => `203.0.113.${index + 1}:18018`);
 
     await peerManager.addKnownPeers(peers, "198.51.100.10:18018");
 
@@ -56,10 +54,7 @@ describe("PeerManager", () => {
     await peerManager.addKnownPeers([knownPeer], "198.51.100.10:18018");
 
     for (let i = 0; i < INVALID_MESSAGE_THRESHOLD; i += 1) {
-      await peerManager.reportInvalidPeerMessage(
-        inboundConnectionId,
-        "bad data",
-      );
+      await peerManager.reportInvalidPeerMessage(inboundConnectionId, "bad data");
     }
 
     expect(peerManager.getKnownPeers()).toContain(knownPeer);
@@ -69,10 +64,7 @@ describe("PeerManager", () => {
   test("does not persist temporary peer penalties across reload", async () => {
     const badPeer = "198.51.100.99:18018";
     const flakyPeer = "198.51.100.100:18018";
-    await peerManager.addKnownPeers(
-      [badPeer, flakyPeer],
-      "198.51.100.10:18018",
-    );
+    await peerManager.addKnownPeers([badPeer, flakyPeer], "198.51.100.10:18018");
 
     for (let i = 0; i < INVALID_MESSAGE_THRESHOLD; i += 1) {
       await peerManager.reportInvalidPeerMessage(badPeer, "bad data");
@@ -87,9 +79,7 @@ describe("PeerManager", () => {
     const reloadedPeerManager = new PeerManager(store, logger);
     await reloadedPeerManager.load();
 
-    expect(store.getPeers()).toEqual(
-      expect.arrayContaining([badPeer, flakyPeer]),
-    );
+    expect(store.getPeers()).toEqual(expect.arrayContaining([badPeer, flakyPeer]));
     expect(reloadedPeerManager.getKnownPeers()).toContain(flakyPeer);
     expect(reloadedPeerManager.getKnownPeers()).toContain(badPeer);
   });

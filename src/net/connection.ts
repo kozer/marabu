@@ -13,7 +13,7 @@ export function handleInboundConnection(socket: Socket, ctx: ConnectedPeerContex
     return;
   }
   new PeerConnection(socket, ctx, ConnectionDirection.INBOUND);
-  ctx.logger.info(
+  ctx.logger.trace(
     `Inbound: ${ctx.peerManager.inboundConnectionCount}. Total: ${ctx.peerManager.totalConnections}/${MAX_PEERS}`,
   );
 }

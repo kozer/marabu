@@ -5,7 +5,7 @@
     "": {
       "name": "subzero",
       "dependencies": {
-        "@noble/ed25519": "^3.0.0",
+        "@noble/ed25519": "^3.1.0",
         "@noble/hashes": "^2.0.1",
         "canonicalize": "^2.1.0",
         "ip": "^2.0.1",
@@ -25,7 +25,7 @@
     },
   },
   "packages": {
-    "@noble/ed25519": ["@noble/ed25519@3.0.0", "", {}, "sha512-QyteqMNm0GLqfa5SoYbSC3+Pvykwpn95Zgth4MFVSMKBB75ELl9tX1LAVsN4c3HXOrakHsF2gL4zWDAYCcsnzg=="],
+    "@noble/ed25519": ["@noble/ed25519@3.1.0", "", {}, "sha512-pfcObRY3CtvwfaG9Mt5XqZdKmAQppl37tHUeuBhDUbiwJBCVY4/A4lbMvb1xKhMDx96AqAqZpMWuBX1HulhX4g=="],
 
     "@noble/hashes": ["@noble/hashes@2.0.1", "", {}, "sha512-XlOlEbQcE9fmuXxrVTXCTlG2nlRXa9Rj3rr5Ue/+tX+nmkgbX720YHh0VR3hBF9xDvwnb8D2shVGOwNx+ulArw=="],
 

@@ -99,8 +99,9 @@ export const initMiner = async (logger: pino.Logger) => {
       blockMinedSubscribers.push(callback);
     },
     restartMine: (txs: string[], state: ChainState) => {
+      logger.info(`Restarting mining at height ${state.height} with ${txs.length} mempool txs`);
       workers.forEach((w, i) => {
-        logger.info(
+        logger.trace(
           `=================== Restarting miner worker ${i} with new template (tip: ${state.tip}, height: ${state.height}, txs: ${txs.length})===================`,
         );
         try {

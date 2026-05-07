@@ -210,7 +210,7 @@ class ObjectManager implements ObjectManagerInterface {
     if (waiters) {
       for (const waiter of waiters) {
         clearTimeout(waiter.timeoutId);
-        this.logger.info(`Resolving pending find for object ${objectId}`);
+        this.logger.trace(`Resolving pending find for object ${objectId}`);
         let newError = null;
         if (error instanceof MultiProtocolError) {
           newError = new MultiProtocolError(
@@ -235,7 +235,7 @@ class ObjectManager implements ObjectManagerInterface {
     if (waiters) {
       for (const waiter of waiters) {
         clearTimeout(waiter.timeoutId);
-        this.logger.info(`Resolving pending find for object ${objectId}`);
+        this.logger.trace(`Resolving pending find for object ${objectId}`);
         waiter.resolve(object);
       }
       this.pendingFinds.delete(objectId);

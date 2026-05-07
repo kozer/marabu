@@ -148,10 +148,10 @@ class BlockManager implements BlockManagerInterface {
         },
         FIND_TIMEOUT_MS,
       );
-      this.logger.info(`findBlock: result for block ${id} is ${result ? "found" : "not found"}`);
+      this.logger.trace(`findBlock: result for block ${id} is ${result ? "found" : "not found"}`);
       if (result && result.type === ObjectType.BLOCK) {
         //This should always be a block if we got a result, but we check just in case.
-        this.logger.info(`Block ${id} downloaded successfully`);
+        this.logger.trace(`Block ${id} downloaded successfully`);
         return result as BlockMessage;
       } else {
         throw new Error(`Object ${id} found but is not a block (type: ${result?.type})`);
@@ -391,7 +391,7 @@ class BlockManager implements BlockManagerInterface {
 			block in your local database and gossip the block. Here, “gossip” means that you send
 			an ihaveobject message with the corresponding blockid.
 */
-    this.logger.info(`Validating block ${this.objectManager.id(block)}...`);
+    this.logger.trace(`Validating block ${this.objectManager.id(block)}...`);
     const errors: ProtocolError[] = [];
     try {
       checkPOW(block, this.objectManager);
@@ -505,23 +505,12 @@ class BlockManager implements BlockManagerInterface {
 
   private async getPendingTxs(): Promise<TransactionMessage[]> {
     const savedTxids = (await this.objectManager.getMeta("mempoolTxids")) as string[] | undefined;
-    if (savedTxids !== undefined) {
-      this.logger.info(`Loading ${savedTxids.length} saved mempool txids`);
-      const txs = (
-        await Promise.all(savedTxids.map((id) => this.objectManager.get(id).catch(() => null)))
-      ).filter(
-        (tx): tx is TransactionMessage =>
-          tx !== null && (tx as any).type === ObjectType.TRANSACTION,
-      );
-      this.logger.info(`Loaded ${txs.length}/${savedTxids.length} from saved txids`);
-      return topologicalSort(txs);
-    }
+    const mempoolIds = new Set<string>(savedTxids ?? []);
 
-    // Fallback: full object scan. Ugly and expensive but it's ok for now since block and tx size is small
-    this.logger.info("No saved mempool state, scanning all objects");
-    const blockTxIds = new Set();
-    const allTxIds = [];
+    const blockTxIds = new Set<string>();
+    const allTxs = new Map<string, TransactionMessage>();
 
+    //Expensive. But ok for now.
     for await (const entry of this.objectManager.getAllObjects()) {
       const [key, value]: [string, any] = entry;
       if (key.startsWith("meta:") || key.startsWith("height:")) continue;
@@ -529,12 +518,29 @@ class BlockManager implements BlockManagerInterface {
         for (const txid of value.txids) blockTxIds.add(txid);
       }
       if (value && value.type === ObjectType.TRANSACTION) {
-        allTxIds.push({ key, value });
+        allTxs.set(key, value);
       }
     }
 
-    const pending = allTxIds.filter((t) => !blockTxIds.has(t.key)).map((t) => t.value);
-    return topologicalSort(pending as unknown as TransactionMessage[]);
+    const pendingIds = new Set<string>();
+    for (const id of mempoolIds) pendingIds.add(id);
+    // Add orphans
+    for (const [key] of allTxs) {
+      if (!blockTxIds.has(key)) pendingIds.add(key);
+    }
+
+    this.logger.info(
+      `Loading ${pendingIds.size} pending txs (${mempoolIds.size} saved mempool + ${pendingIds.size - mempoolIds.size} orphans)`,
+    );
+
+    const txs = Array.from(pendingIds)
+      .map((id) => {
+        return allTxs.get(id);
+      })
+      .filter((tx) => tx !== undefined);
+
+    this.logger.info(`Loaded ${txs.length}/${pendingIds.size} pending txs`);
+    return topologicalSort(txs);
   }
 }
 export default BlockManager;

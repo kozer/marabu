@@ -15,8 +15,8 @@
     "cov": "bun test --coverage"
   },
   "dependencies": {
-    "@noble/ed25519": "^3.0.0",
-    "@noble/hashes": "^2.0.1",
+    "@noble/ed25519": "^3.1.0",
+    "@noble/hashes": "^2.2.0",
     "canonicalize": "^2.1.0",
     "ip": "^2.0.1",
     "level": "^10.0.0",

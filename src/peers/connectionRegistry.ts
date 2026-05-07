@@ -9,7 +9,7 @@ export class ConnectionRegistry {
 
   registerInbound(connection: PeerConnection): void {
     this.inboundConnections.set(connection.id, connection);
-    this.logger.info(
+    this.logger.trace(
       `Peer connected: ${connection.id}. Active inbound peers: ${this.inboundConnections.size}`,
     );
   }
@@ -20,14 +20,14 @@ export class ConnectionRegistry {
 
   unregister(id: string): void {
     if (this.inboundConnections.delete(id)) {
-      this.logger.info(
+      this.logger.trace(
         `Inbound peer disconnected: ${id}. Active inbound peers: ${this.inboundConnections.size}`,
       );
       return;
     }
 
     if (this.outboundConnections.delete(id)) {
-      this.logger.info(
+      this.logger.trace(
         `Outbound peer disconnected: ${id}. Active outbound peers: ${this.outboundConnections.size}`,
       );
     }
@@ -81,7 +81,7 @@ export class ConnectionRegistry {
     }
     this.inboundConnections.clear();
     this.outboundConnections.clear();
-    this.logger.info("All peer connections closed");
+    this.logger.trace("All peer connections closed");
   }
 
   destroyAll(): void {
@@ -93,6 +93,6 @@ export class ConnectionRegistry {
     }
     this.inboundConnections.clear();
     this.outboundConnections.clear();
-    this.logger.info("All peer connections destroyed");
+    this.logger.trace("All peer connections destroyed");
   }
 }

@@ -62,7 +62,7 @@ async function PoW({ txs, state }: { txs: string[]; state: ChainState }) {
   };
   const txids = [hashObject(coinbaseTx), ...txs];
 
-  logger.info(
+  logger.trace(
     `============================================================ Mining block ${height} | tip: ${state.tip.slice(0, 8)} | mempool: ${txs.length} txs ==============================================================`,
   );
 

@@ -11,6 +11,7 @@ import {
   TC3_INVALID_TX,
   TC3_COINBASE_TX,
   TC3_REORG,
+  TC3_DEAD_FORK,
 } from "./fixtures/pset5";
 import { cleanDb, collectMessages, connect, oid, send, wait } from "./test_helpers";
 
@@ -191,4 +192,47 @@ describe("pset5", () => {
     expect(mempoolTxids).toContain(CHAIN.TX_EXTRA_ID);
     sock.destroy();
   }, 25_000);
+
+  test("3f) Re-gossiped stored tx after reorg → enters mempool", async () => {
+    // After test 3e, tip = B4_ALT (fork B, h=4). Fork A blocks (B2_EXTENDED, B3) dead.
+    // B2_EXTENDED's coinbase UTXO NOT in active set.
+    const sock = await connect();
+    send(sock, { agent: "Grader 1", type: "hello", version: "0.10.0" });
+    await collectMessages(sock, 500);
+
+    // Step 1: send tx spending B2_EXTENDED's coinbase → stored, fails mempool
+    const tx = TC3_DEAD_FORK.TX_FORK_A;
+    send(sock, { type: "object", object: tx });
+    const errUntil = (m: any) => m.type === "error";
+    let msgs = await collectMessages(sock, 3000, undefined, errUntil);
+    // Expect INVALID_TX_OUTPOINT (UTXO on dead fork)
+    expect(msgs.find((m: any) => m.name === ErrorCode.INVALID_TX_OUTPOINT)).toBeDefined();
+    // NOT in mempool
+    send(sock, { type: "getmempool" });
+    msgs = await collectMessages(sock, 1000);
+    let txids: string[] = (msgs.find((m: any) => m.type === "mempool") as any)?.txids ?? [];
+    expect(txids).not.toContain(TC3_DEAD_FORK.TX_FORK_A_ID);
+
+    // Step 2: send fork A extension B3→B4_DEAD→B5_DEAD, h=5 > h=4 → REORG → fork A tip
+    for (const b of [CHAIN.B3, TC3_DEAD_FORK.B4_DEAD, TC3_DEAD_FORK.B5_DEAD]) {
+      send(sock, { type: "object", object: b });
+      await collectMessages(sock, 3000, GLOBAL_STORE);
+    }
+    // Verify tip is B5_DEAD
+    send(sock, { type: "getchaintip" });
+    msgs = await collectMessages(sock, 1000);
+    expect(
+      msgs.find((m: any) => m.type === "chaintip" && m.blockid === TC3_DEAD_FORK.B5_DEAD_ID),
+    ).toBeDefined();
+
+    // Step 3: re-send the SAME tx. B2_EXTENDED UTXO now available on fork A tip.
+    send(sock, { type: "object", object: tx });
+    await collectMessages(sock, 2000, GLOBAL_STORE);
+    send(sock, { type: "getmempool" });
+    msgs = await collectMessages(sock, 1000);
+    txids = (msgs.find((m: any) => m.type === "mempool") as any)?.txids ?? [];
+    expect(txids).toContain(TC3_DEAD_FORK.TX_FORK_A_ID);
+
+    sock.destroy();
+  }, 30_000);
 });

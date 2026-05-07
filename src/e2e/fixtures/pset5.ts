@@ -233,6 +233,72 @@ export const TC3_REORG = await (async () => {
   };
 })();
 
+// ── Test 3f – Tx spending from dead fork (equal-height rival) ───
+// Scenario: fork A is tip, then a valid tx spends from fork A's coinbase.
+// After building fork A (B3) as tip, we build a rival B3_DEAD at same height
+// but DON'T send it (it stays in the store for getobject). The tx spends CB3
+// and should appear in mempool. Then we send B3_DEAD (same height) — no reorg.
+// New tx spends from B3_DEAD's coinbase — should NOT enter mempool
+// because B3 is still tip.
+
+export const TC3_DEAD_FORK = await (async () => {
+  const cbDead = coinbase(3, PK1, BLOCK_REWARD);
+  const cbDeadId = oid(cbDead);
+
+  const b3Dead = buildBlock({
+    created: 1771172000,
+    miner: "grader",
+    nonce: nonce(0xf),
+    note: "Dead fork block 3",
+    previd: CHAIN.B2_EXTENDED_ID,
+    txids: [cbDeadId],
+  });
+
+  // B4 extends B3 (fork A), can reorg over B3_DEAD's fork
+  const cb4 = coinbase(4, PK2, BLOCK_REWARD);
+  const cb4Id = oid(cb4);
+  const b4 = buildBlock({
+    created: 1771175600,
+    miner: "grader",
+    nonce: nonce(0x4),
+    note: "Fork A block 4",
+    previd: CHAIN.B3_ID,
+    txids: [cb4Id],
+  });
+
+  // B5 at h=5 to beat B4_ALT at h=4
+  const cb5 = coinbase(5, PK1, BLOCK_REWARD);
+  const cb5Id = oid(cb5);
+  const b5 = buildBlock({
+    created: 1771179200,
+    miner: "grader",
+    nonce: nonce(0x5),
+    note: "Fork A block 5",
+    previd: oid(b4),
+    txids: [cb5Id],
+  });
+
+  // Tx that spends B2_EXTENDED's coinbase (fork A only, NOT available on fork B)
+  const txForkA = await buildSpend(CHAIN.CB2_ID, PK1, BLOCK_REWARD - 1, SK2);
+
+  return {
+    CB_DEAD: cbDead,
+    CB_DEAD_ID: cbDeadId,
+    B3_DEAD: b3Dead,
+    B3_DEAD_ID: oid(b3Dead),
+    B4_DEAD: b4,
+    B4_DEAD_ID: oid(b4),
+    B5_DEAD: b5,
+    B5_DEAD_ID: oid(b5),
+    CB4_DEAD: cb4,
+    CB4_DEAD_ID: cb4Id,
+    CB5_DEAD: cb5,
+    CB5_DEAD_ID: cb5Id,
+    TX_FORK_A: txForkA,
+    TX_FORK_A_ID: oid(txForkA),
+  };
+})();
+
 // ── Global object store (serves getobject replies during tests) ──
 
 export const P5_GLOBAL_STORE = new Map<string, unknown>([
@@ -262,4 +328,12 @@ export const P5_GLOBAL_STORE = new Map<string, unknown>([
   [TC3_REORG.B2_ALT_ID, TC3_REORG.B2_ALT],
   [TC3_REORG.B3_ALT_ID, TC3_REORG.B3_ALT],
   [TC3_REORG.B4_ALT_ID, TC3_REORG.B4_ALT],
+  // TC3 dead fork
+  [TC3_DEAD_FORK.CB_DEAD_ID, TC3_DEAD_FORK.CB_DEAD],
+  [TC3_DEAD_FORK.B3_DEAD_ID, TC3_DEAD_FORK.B3_DEAD],
+  [TC3_DEAD_FORK.TX_FORK_A_ID, TC3_DEAD_FORK.TX_FORK_A],
+  [TC3_DEAD_FORK.B4_DEAD_ID, TC3_DEAD_FORK.B4_DEAD],
+  [TC3_DEAD_FORK.B5_DEAD_ID, TC3_DEAD_FORK.B5_DEAD],
+  [TC3_DEAD_FORK.CB4_DEAD_ID, TC3_DEAD_FORK.CB4_DEAD],
+  [TC3_DEAD_FORK.CB5_DEAD_ID, TC3_DEAD_FORK.CB5_DEAD],
 ]);
