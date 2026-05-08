@@ -1,4 +1,4 @@
-# SubZero — Marabu Blockchain Node
+# SubZero - Marabu Blockchain Node
 
 P2P blockchain node implementing the [Marabu protocol](https://marabu.dev). Includes a REST API and a web ledger UI for creating transactions.
 
