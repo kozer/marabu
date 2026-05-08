@@ -16,12 +16,9 @@ import type {
 } from "@/protocol/types";
 import ProtocolError from "@/protocol/error";
 import ObjectManager from "@/storage/objectManager";
-import {
-  createTestPrivateKey,
-  getPublicKeyHex,
-  signTransaction,
-} from "@/test/transactionTestUtils";
+import { createTestPrivateKey, getPublicKeyHex } from "@/test/transactionTestUtils";
 import type pino from "pino";
+import { signTransaction } from "@/shared/utils";
 
 const logger = {
   info: (..._args: any[]) => {},
@@ -75,6 +72,7 @@ function createMockManagers(args?: {
   blockManager?: any;
   transactionManager?: any;
   peerManager?: any;
+  ledger?: any;
 }) {
   const objectManager = args?.objectManager ?? createInMemoryObjectManager().manager;
   const peerManager = args?.peerManager ?? {
@@ -101,6 +99,7 @@ function createMockManagers(args?: {
       },
     },
     peer: peerManager,
+    ledger: args?.ledger ?? { getLedger: async () => [] },
   };
 }
 

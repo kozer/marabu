@@ -5,12 +5,14 @@ import type { ObjectManagerInterface } from "@/storage/objectManager";
 import type { TransactionManager } from "@/storage/TransactionManager";
 import { messageHandlers } from "./messageHandlers";
 import type pino from "pino";
+import type Ledger from "@/storage/Ledger";
 
 export type ManagerSet = {
   block: BlockManager;
   tx: TransactionManager;
   peer: PeerManager;
   object: ObjectManagerInterface;
+  ledger: Ledger;
 };
 
 export class MessageDispatcher {
@@ -20,6 +22,7 @@ export class MessageDispatcher {
       tx: TransactionManager;
       peer: PeerManager;
       object: ObjectManagerInterface;
+      ledger: Ledger;
     },
     private logger: pino.Logger,
   ) {}

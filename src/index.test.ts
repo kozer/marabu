@@ -2,7 +2,7 @@ import { expect, test, describe, beforeAll, afterAll, beforeEach } from "bun:tes
 import { createServer, Socket, type AddressInfo } from "net";
 import { handleInboundConnection } from "@/net/connection";
 import { PeerManager } from "@/peers/peerManager";
-import { sendMessage, delay } from "@/shared/utils";
+import { sendMessage, delay, signTransaction } from "@/shared/utils";
 import { SEPARATOR } from "@/shared/constants";
 import { MemoryPeerStore } from "@/peers/peerStore";
 import {
@@ -14,11 +14,7 @@ import {
   type TransactionMessage,
 } from "@/protocol/types";
 import ObjectManager from "@/storage/objectManager";
-import {
-  createTestPrivateKey,
-  getPublicKeyHex,
-  signTransaction,
-} from "@/test/transactionTestUtils";
+import { createTestPrivateKey, getPublicKeyHex } from "@/test/transactionTestUtils";
 import { MessageDispatcher } from "./net/MessageDispatcher";
 import { TransactionManager } from "@/storage/TransactionManager";
 import type pino from "pino";
@@ -254,7 +250,13 @@ describe("Test node functionality", () => {
     server.on("connection", (socket: Socket) => {
       const id = `${socket.remoteAddress}:${socket.remotePort}`;
       const messageDispatcher = new MessageDispatcher(
-        { block: blockManager, tx: transactionManager, peer: peerManager, object: objectManager },
+        {
+          block: blockManager,
+          tx: transactionManager,
+          peer: peerManager,
+          object: objectManager,
+          ledger: { getLedger: async () => [] } as any,
+        },
         logger as unknown as pino.Logger,
       );
       const ctx: ConnectedPeerContext = {

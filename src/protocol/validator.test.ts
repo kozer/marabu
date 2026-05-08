@@ -18,11 +18,7 @@ import type {
   UtxoSnapshot,
 } from "./types";
 import { validatePeers } from "./peer.validator";
-import {
-  createTestPrivateKey,
-  getPublicKeyHex,
-  signTransaction,
-} from "@/test/transactionTestUtils";
+import { createTestPrivateKey, getPublicKeyHex } from "@/test/transactionTestUtils";
 import {
   calculateFees,
   resolveInputs,
@@ -33,6 +29,7 @@ import {
 import type pino from "pino";
 import { TransactionManager } from "@/storage/TransactionManager";
 import BlockManager from "@/storage/BlockManager";
+import { signTransaction } from "@/shared/utils";
 
 const PREV_TX_ID = "11".repeat(32);
 const RECIPIENT_PUBKEY = "22".repeat(32);

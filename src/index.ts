@@ -18,6 +18,7 @@ import { GENESIS_BLOCK, GENESIS_BLOCK_ID } from "./protocol/types";
 import { MessageDispatcher } from "./net/MessageDispatcher";
 import { TransactionManager } from "./storage/TransactionManager";
 import { initMiner } from "./minerFactory";
+import Ledger from "./storage/Ledger";
 
 export type NodeOptions = {
   dbPath?: string;
@@ -66,6 +67,7 @@ export async function startNode(opts?: NodeOptions): Promise<NodeHandle> {
     transactionManager,
     logger,
   );
+  const ledger = new Ledger(objectManager, utxoStore);
   if (opts?.seed) {
     await blockManager.init(GENESIS_BLOCK, GENESIS_BLOCK_ID);
   } else {
@@ -109,7 +111,13 @@ export async function startNode(opts?: NodeOptions): Promise<NodeHandle> {
   }
 
   const messageDispatcher = new MessageDispatcher(
-    { block: blockManager, tx: transactionManager, peer: peerManager, object: objectManager },
+    {
+      block: blockManager,
+      tx: transactionManager,
+      peer: peerManager,
+      object: objectManager,
+      ledger: ledger,
+    },
     logger,
   );
 

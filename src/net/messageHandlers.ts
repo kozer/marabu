@@ -17,6 +17,7 @@ import type {
   ObjectMessage,
   ChainTipMessage,
   BlockMessage,
+  LedgerMessage,
 } from "@/protocol/types";
 import type { ManagerSet } from "./MessageDispatcher";
 
@@ -154,6 +155,22 @@ export const chainTipHandler = async (
   await managers.block.handleIncoming(message.blockid);
 };
 
+export const ledgerHander = async (
+  message: LedgerMessage,
+  connection: Connection,
+  managers: ManagerSet,
+) => {
+  connection.log.info(`Request ledger`);
+  connection.send({
+    type: MessageType.IHAVELEDGER,
+    utxos: await managers.ledger.getLedger(message.pk),
+  });
+};
+
+const ihaveLedgerHandler = async () => {
+  // Node sends this, never receives it — no-op for type coverage
+};
+
 type GenericHandler = (
   message: ValidMessage,
   connection: Connection,
@@ -176,4 +193,6 @@ export const messageHandlers: Record<
   [MessageType.IHAVEOBJECT]: iHaveObjectHandler as unknown as GenericHandler,
   [MessageType.GET_OBJECT]: getObjectHandler as unknown as GenericHandler,
   [MessageType.OBJECT]: objectHandler as unknown as GenericHandler,
+  [MessageType.LEDGER]: ledgerHander as unknown as GenericHandler,
+  [MessageType.IHAVELEDGER]: ihaveLedgerHandler as unknown as GenericHandler,
 };

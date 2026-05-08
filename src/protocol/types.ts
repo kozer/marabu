@@ -18,6 +18,9 @@ export enum MessageType {
   IHAVEOBJECT = "ihaveobject",
   OBJECT = "object",
   GET_OBJECT = "getobject",
+  //internal extension for fe
+  LEDGER = "ledger",
+  IHAVELEDGER = "ihaveledger",
 }
 
 export enum ObjectType {
@@ -155,6 +158,16 @@ export const ChainTipMessageSchema = z.object({
   blockid: z.hex().length(64),
 });
 
+export const LedgerMessageSchema = z.object({
+  type: z.literal(MessageType.LEDGER),
+  pk: z.hex().length(64),
+});
+
+export const IHaveLedgerMessageSchema = z.object({
+  type: z.literal(MessageType.IHAVELEDGER),
+  utxos: z.any(),
+});
+
 export const GetOjbectMessageSchema = z.object({
   type: z.literal(MessageType.GET_OBJECT),
   objectid: z.hex().max(64),
@@ -209,6 +222,8 @@ export const MessageSchema = z.discriminatedUnion("type", [
   IHaveObjectMessageSchema,
   GetOjbectMessageSchema,
   ChainTipMessageSchema,
+  LedgerMessageSchema,
+  IHaveLedgerMessageSchema,
 ]);
 
 export type ValidMessage = z.infer<typeof MessageSchema>;
@@ -219,6 +234,8 @@ export type PeersMessage = z.infer<typeof PeersMessageSchema>;
 export type ErrorMessage = z.infer<typeof ErrorMessageSchema>;
 export type GetChainTipMessage = z.infer<typeof GetChainTipMessageSchema>;
 export type ChainTipMessage = z.infer<typeof ChainTipMessageSchema>;
+export type LedgerMessage = z.infer<typeof LedgerMessageSchema>;
+export type IHaveLedgerMessage = z.infer<typeof IHaveLedgerMessageSchema>;
 export type GetMempoolMessage = z.infer<typeof GetMempoolMessageSchema>;
 export type MempoolMessage = z.infer<typeof MempoolMessageSchema>;
 export type TransactionMessage = z.infer<typeof TransactionSchema>;
