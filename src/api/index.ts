@@ -42,8 +42,8 @@ app.get<{ Querystring: { pubkey?: string } }>("/utxos", async (request, reply) =
 // POST /tx — relays transaction to node via P2P OBJECT message
 app.post("/tx", async (request, reply) => {
   try {
-    await sendTxToNode(request.body);
-    return { status: "ok" };
+    const txid = await sendTxToNode(request.body);
+    return { status: "ok", txid };
   } catch (e) {
     logger.error({ err: e }, "Transaction submit failed");
     return reply.status(502).send({ error: (e as Error).message });
@@ -130,6 +130,7 @@ async function requestLedger(pubkey: string) {
         txid: u.txid,
         index: u.index,
         value: u.output.value,
+        pubkey: u.output.pubkey,
       }));
     }
   }
@@ -137,7 +138,7 @@ async function requestLedger(pubkey: string) {
   throw new Error("No ledger response from node");
 }
 
-async function sendTxToNode(tx: any) {
+async function sendTxToNode(tx: any): Promise<string> {
   const signed = await signTx(tx);
   const messages = await p2pRequest(
     (socket) => {
@@ -158,7 +159,11 @@ async function sendTxToNode(tx: any) {
     if (msg.type === MessageType.ERROR) {
       throw new Error(`Node rejected: ${msg.name} — ${msg.description}`);
     }
+    if (msg.type === MessageType.IHAVEOBJECT) {
+      return msg.objectid;
+    }
   }
+  throw new Error("No response from node");
 }
 
 async function signTx(tx: any): Promise<any> {

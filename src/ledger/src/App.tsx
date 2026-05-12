@@ -7,6 +7,13 @@ interface UtxoEntry {
   txid: string;
   index: number;
   value: number;
+  pubkey: string;
+}
+
+function fmtPubkey(pk?: string): string {
+  if (!pk) return "???";
+  if (pk.length <= 12) return pk;
+  return `${pk.slice(0, 6)}...${pk.slice(-6)}`;
 }
 
 interface UtxosResponse {
@@ -16,7 +23,7 @@ interface UtxosResponse {
 
 interface TxResponse {
   status: string;
-  txid: string;
+  txid?: string;
   error?: string;
 }
 
@@ -44,6 +51,7 @@ function App() {
   const [step, setStep] = useState<Step>("form");
   const [selectedUtxos, setSelectedUtxos] = useState<UtxoEntry[]>([]);
   const [change, setChange] = useState(0);
+  const [lastTxid, setLastTxid] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -127,7 +135,8 @@ function App() {
         }),
       });
       const data: TxResponse = await res.json();
-      console.log("TX result:", data);
+      if (!res.ok) throw new Error(data.error || "Failed to send");
+      setLastTxid(data.txid || null);
       setOutputs([{ pubkey: "", value: 0 }]);
       setStep("form");
     } catch (e: unknown) {
@@ -181,6 +190,13 @@ function App() {
             <>
               <h2 className="text-2xl font-semibold text-white mb-8">New Transaction</h2>
 
+              {lastTxid && (
+                <div className="border border-emerald-500/30 bg-emerald-500/5 rounded-xl p-4 mb-6">
+                  <p className="text-xs text-emerald-400 font-medium mb-1">Last transaction sent</p>
+                  <p className="text-emerald-300 font-mono text-xs break-all">{lastTxid}</p>
+                </div>
+              )}
+
               <div className="space-y-8">
                 {/* Pubkey (sender) */}
                 <div>
@@ -221,7 +237,10 @@ function App() {
                             className="flex justify-between text-sm bg-slate-800/50 rounded-lg px-3 py-2"
                           >
                             <span className="text-slate-400 font-mono text-xs truncate max-w-50">
-                              {u.txid.slice(0, 16)}...:{u.index}
+                              {u.txid.slice(0, 8)}...:{u.index}
+                            </span>
+                            <span className="text-purple-400 font-mono text-[10px] truncate max-w-30">
+                              {fmtPubkey(u.pubkey)}
                             </span>
                             <span className="text-white font-mono text-xs">
                               {toMarabu(u.value)} bu
@@ -331,10 +350,16 @@ function App() {
                         className="flex justify-between text-sm bg-slate-800/50 rounded-lg px-3 py-2"
                       >
                         <span className="text-slate-400 font-mono text-xs truncate max-w-50">
-                          {u.txid.slice(0, 16)}...:{u.index}
+                          {u.txid.slice(0, 8)}...:{u.index}
                         </span>
-                        <span className="text-white font-mono">
-                          {u.value.toLocaleString()} picabu
+                        <span className="text-purple-400 font-mono text-[10px] truncate max-w-30">
+                          {fmtPubkey(u.pubkey)}
+                        </span>
+                        <span className="text-white font-mono text-xs">
+                          {toMarabu(u.value)} bu
+                        </span>
+                        <span className="text-slate-600 text-[10px]">
+                          ({u.value.toLocaleString()} picabu)
                         </span>
                       </div>
                     ))}
@@ -360,7 +385,7 @@ function App() {
                         className="flex justify-between text-sm bg-slate-800/50 rounded-lg px-3 py-2"
                       >
                         <span className="text-slate-400 font-mono text-xs truncate max-w-50">
-                          {o.pubkey.slice(0, 16)}...
+                          {fmtPubkey(o.pubkey)}
                         </span>
                         <span className="text-white font-mono text-xs">{toMarabu(o.value)} bu</span>
                         <span className="text-slate-600 text-[10px]">
