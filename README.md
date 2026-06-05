@@ -113,14 +113,16 @@ Config via environment:
 
 ```
 src/
-├── index.ts              # Node entry (P2P server)
+├── index.ts              # P2P node entry point
+├── minerFactory.ts       # Miner instantiation (CPU/GPU)
 ├── api/index.ts          # HTTP API (Fastify)
-├── protocol/             # Message schemas, validators
+├── protocol/             # Message schemas (Zod), block/tx/peer validators
 ├── storage/              # ObjectManager, UtxoStore, BlockManager, Ledger
-├── net/                  # TCP connection handling, message dispatch
-├── peers/                # Peer discovery and management
-├── miners/               # CPU/GPU miners
-├── shared/               # Logger, constants, utilities
-└── ledger/               # React frontend (separate Vite project)
-    └── src/App.tsx       # Main ledger UI
+├── net/                  # TCP connections, handshake, message dispatch
+├── peers/                # Peer discovery, registry, persistence
+├── miners/               # CPU and GPU (WebGPU) miners
+├── shared/               # Logger, constants, LRU cache, utils
+├── test/                 # Shared test utilities
+├── e2e/                  # End-to-end tests with fixtures
+└── ledger/               # React + Tailwind v4 + Vite frontend
 ```
