@@ -68,6 +68,28 @@ The API signs the transaction with your private key and relays it to the node.
 
 ## Production deployment
 
+### Docker (recommended)
+
+```bash
+# All services
+podman compose --profile all up -d
+
+# Individual services
+podman compose --profile node up -d     # P2P node :18018
+podman compose --profile api up -d      # HTTP API :3000
+podman compose --profile ledger up -d   # Frontend :5173
+
+# Stop
+podman compose --profile all down
+```
+
+Mount volumes for persistence:
+- `./peers.json` — bootstrap peer list (node)
+- `./marabudb/` — LevelDB chain state (node)
+- `./keys.json` — signing key (API)
+
+### Script (legacy)
+
 ```bash
 bash start_node.sh
 ```
@@ -78,14 +100,14 @@ Config via environment:
 
 | Variable | Default | Description |
 |---|---|---|
+| `SERVER_HOST` | `0.0.0.0` | Bind address |
 | `EXTERNAL_PORT` | `18018` | P2P listen port |
 | `NODE_HOST` | `127.0.0.1` | API connects to this |
 | `NODE_PORT` | `18018` | API connects to this port |
-| `API_PORT` | `3000` | (future) HTTP API port |
-| `DB_PATH` | `./marabudb` | LevelDB path |
 | `LOG_LEVEL` | `info` | pino log level |
 | `MINER_ENABLED` | `false` | Enable mining |
 | `MINER_TYPE` | `gpu` | `cpu` or `gpu` |
+| `OVERRIDE_NODE` | — | Advertise different address (e.g. behind NAT/tunnel) |
 
 ## Project structure
 

@@ -1,10 +1,58 @@
 services:
   marabu-node:
     build: .
+    image: subzero:latest
     container_name: subzero-node
     restart: always
     network_mode: "host"
+    user: root
     volumes:
       - ./peers.json:/usr/src/app/peers.json:Z
+      - ./marabudb:/usr/src/app/marabudb:Z
     environment:
       - NODE_ENV=production
+      - SERVER_HOST=${SERVER_HOST:-0.0.0.0}
+      - EXTERNAL_PORT=${EXTERNAL_PORT:-18018}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - MINER_ENABLED=${MINER_ENABLED:-false}
+      - MINER_TYPE=${MINER_TYPE:-gpu}
+      - ENABLE_MINER_PROFILING=${ENABLE_MINER_PROFILING:-false}
+      - OVERRIDE_NODE=${OVERRIDE_NODE}
+    profiles:
+      - all
+      - node
+
+  marabu-api:
+    build: .
+    image: subzero:latest
+    container_name: subzero-api
+    restart: always
+    network_mode: "host"
+    user: root
+    volumes:
+      - ./keys.json:/usr/src/app/keys.json:Z
+    environment:
+      - NODE_ENV=production
+      - NODE_HOST=${NODE_HOST:-127.0.0.1}
+      - NODE_PORT=${NODE_PORT:-18018}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    command: ["bun", "run", "src/api/index.ts"]
+    profiles:
+      - all
+      - api
+
+  marabu-ledger:
+    image: docker.io/node:22-alpine
+    container_name: subzero-ledger
+    restart: always
+    network_mode: "host"
+    working_dir: /app
+    volumes:
+      - ./src/ledger:/app:Z
+    environment:
+      - NODE_ENV=production
+    command: >
+      sh -c "corepack enable && pnpm install --frozen-lockfile && pnpm dev --host 0.0.0.0"
+    profiles:
+      - all
+      - ledger

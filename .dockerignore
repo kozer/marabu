@@ -13,3 +13,7 @@ helm-charts
 .editorconfig
 .idea
 coverage*
+keys.json
+logs
+peers.json
+marabudb

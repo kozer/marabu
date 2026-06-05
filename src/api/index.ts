@@ -2,12 +2,32 @@ import Fastify from "fastify";
 import pino from "pino";
 import { Socket } from "net";
 import { sendMessage, signTransaction } from "@/shared/utils";
-import keys from "../../keys.json" with { type: "json" };
-
-const PRIVATE_KEY = new Uint8Array(Buffer.from(keys.secretKey, "hex"));
 import { MessageType } from "@/protocol/types";
 
 const logger = pino({ level: process.env.LOG_LEVEL || "debug" });
+
+let PRIVATE_KEY: Uint8Array | null = null;
+
+async function loadPrivateKey(): Promise<void> {
+  const file = Bun.file("./keys.json");
+  if (!(await file.exists())) {
+    logger.warn("keys.json not found. Generate one with: bun create_keys.ts");
+    logger.warn("Transaction signing will be unavailable.");
+    return;
+  }
+  try {
+    const raw = await file.text();
+    const keys = JSON.parse(raw);
+    if (!keys.secretKey || typeof keys.secretKey !== "string" || keys.secretKey.length !== 64) {
+      logger.error("keys.json contains invalid secretKey. Regenerate with: bun create_keys.ts");
+      return;
+    }
+    PRIVATE_KEY = new Uint8Array(Buffer.from(keys.secretKey, "hex"));
+    logger.info("Private key loaded from keys.json");
+  } catch (err) {
+    logger.error({ err }, "Failed to load keys.json");
+  }
+}
 const app = Fastify({ logger: { level: process.env.LOG_LEVEL || "info" } });
 
 const NODE_HOST = process.env.NODE_HOST || "127.0.0.1";
@@ -41,6 +61,9 @@ app.get<{ Querystring: { pubkey?: string } }>("/utxos", async (request, reply) =
 
 // POST /tx — relays transaction to node via P2P OBJECT message
 app.post("/tx", async (request, reply) => {
+  if (!PRIVATE_KEY) {
+    return reply.status(500).send({ error: "No private key configured. Run: bun create_keys.ts" });
+  }
   try {
     const txid = await sendTxToNode(request.body);
     return { status: "ok", txid };
@@ -167,6 +190,9 @@ async function sendTxToNode(tx: any): Promise<string> {
 }
 
 async function signTx(tx: any): Promise<any> {
+  if (!PRIVATE_KEY) {
+    throw new Error("No private key configured. Run: bun create_keys.ts");
+  }
   const sig = await signTransaction(tx, PRIVATE_KEY);
   return {
     ...tx,
@@ -175,6 +201,8 @@ async function signTx(tx: any): Promise<any> {
 }
 
 // ── Start ────────────────────────────────────────────────────────────
+
+await loadPrivateKey();
 
 app.listen({ port: 3000 }, () =>
   logger.info(`API listening on http://localhost:3000 (node at ${NODE_HOST}:${NODE_PORT})`),

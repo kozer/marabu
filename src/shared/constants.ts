@@ -6,9 +6,7 @@ export const isProd = process.env.NODE_ENV === "production";
 export const isTest = process.env.NODE_ENV === "test";
 export const SERVER_HOST = isTest
   ? "0.0.0.0"
-  : isProd
-    ? "95.179.181.27"
-    : process.env.EXTERNAL_HOST || "0.0.0.0";
+  : process.env.SERVER_HOST || process.env.EXTERNAL_HOST || "0.0.0.0";
 
 export const BOOTSTRAP_PEERS = [
   "95.179.158.137:18018",
