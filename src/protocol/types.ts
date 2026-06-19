@@ -160,7 +160,6 @@ export const ChainTipMessageSchema = z.object({
 
 export const LedgerMessageSchema = z.object({
   type: z.literal(MessageType.LEDGER),
-  pk: z.hex().length(64),
 });
 
 export const IHaveLedgerMessageSchema = z.object({

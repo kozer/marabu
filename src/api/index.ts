@@ -51,7 +51,8 @@ app.get<{ Querystring: { pubkey?: string } }>("/utxos", async (request, reply) =
   }
 
   try {
-    const utxos = await requestLedger(pubkey);
+    const allUtxos = await requestLedger();
+    const utxos = allUtxos.filter((u: any) => u.pubkey === pubkey);
     return { utxos };
   } catch (e) {
     logger.error({ err: e }, "Ledger request failed");
@@ -131,7 +132,7 @@ function p2pRequest(
   });
 }
 
-async function requestLedger(pubkey: string) {
+async function requestLedger() {
   const messages = await p2pRequest(
     (socket) => {
       sendMessage(socket, {
@@ -141,7 +142,6 @@ async function requestLedger(pubkey: string) {
       } as any);
       sendMessage(socket, {
         type: "ledger",
-        pk: pubkey,
       } as any);
     },
     (msg) => msg.type === MessageType.IHAVELEDGER,

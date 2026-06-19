@@ -3,7 +3,7 @@ import type { ObjectManagerInterface } from "./objectManager";
 import type { UtxoStoreInterface } from "./UtxoStore";
 
 export interface LedgerInterface {
-  getLedger(pk: string): Promise<UtxoEntry[]>;
+  getLedger(): Promise<UtxoEntry[]>;
 }
 
 class Ledger implements LedgerInterface {
@@ -12,12 +12,12 @@ class Ledger implements LedgerInterface {
     private readonly utxoStore: UtxoStoreInterface,
   ) {}
 
-  async getLedger(pk: string): Promise<UtxoEntry[]> {
+  async getLedger(): Promise<UtxoEntry[]> {
     const chainState = await this.objectManager.getChainState();
     if (chainState.height < 0) return [];
     const utxoSet = await this.utxoStore.get(chainState.tip);
     if (!utxoSet) return [];
-    return [...utxoSet.values()].filter((utxo) => utxo.output.pubkey === pk);
+    return [...utxoSet.values()];
   }
 }
 

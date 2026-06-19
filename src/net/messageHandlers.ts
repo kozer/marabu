@@ -156,14 +156,14 @@ export const chainTipHandler = async (
 };
 
 export const ledgerHander = async (
-  message: LedgerMessage,
+  _message: LedgerMessage,
   connection: Connection,
   managers: ManagerSet,
 ) => {
   connection.log.info(`Request ledger`);
   connection.send({
     type: MessageType.IHAVELEDGER,
-    utxos: await managers.ledger.getLedger(message.pk),
+    utxos: await managers.ledger.getLedger(),
   });
 };
 
